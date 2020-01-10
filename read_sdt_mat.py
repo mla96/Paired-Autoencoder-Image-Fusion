@@ -6,26 +6,37 @@ from PIL import Image
 import os
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import re
+import shutil
 
 
 from dataformat_functions import *
 from gif_animation import *
 from registration import *
 
+# COMMENT AUXILIARY FILES
+
 
 os.getcwd()
-os.chdir("..")
+os.chdir("../")
+
+# print(os.getcwd())
+#
+# path = 'OakHome/FLIO/Data/AMD_subj_list_TEST'
+#
+# f = open(path, 'r')
+# lines = f.readlines()
+# f.close()
+#
+# for line in lines:
+#     line = line.strip()
+#     files = os.listdir(os.path.join('Documents/FLIMX-master/studyData/AMD/', line.replace('_',  '')))
+#     for file in files:
+#         shutil.copy(os.path.join('Documents/FLIMX-master/studyData/AMD', line.replace('_',  ''), file), os.path.join('OakHome/FLIO/Data', line))
 
 
 # Define "show" boolean arg for each function with "show"
 
-
-# # Load all subjects
-# subject_list_path = "AMD_subj_list.txt"
-# subj_list = []
-# with open(subject_list_path) as subj_list_path:
-#     subj = subj_list_path.readline()
-#     subj_list.append(subj)
 
 
 # FOR SUBJECT IN LIST
