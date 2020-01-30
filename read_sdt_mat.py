@@ -1,19 +1,14 @@
-import numpy as np
-import scipy as sp
-import scipy.io as sio
-import SimpleITK as sitk
-from PIL import Image
-import os
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-import re
-import shutil
+# Michelle La
+# Jan. 30, 2020
 
+# Main script to read .sdt files into .mat files; calculate registration transforms; and generate registered arrays,
+# .gifs, and images
+
+
+import os
 from dataformat_functions import *
 from gif_animation import *
 from registration import *
-
-# COMMENT AUXILIARY FILES
 
 
 os.getcwd()
@@ -23,7 +18,7 @@ num_channels = 2
 path = 'Data/AMD_subj_list'
 
 # crop_bound = 256
-crop_bound_w = 256  # 166
+crop_bound_w = 256
 crop_bound_h = 222
 
 f = open(path, 'r')
