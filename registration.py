@@ -1,3 +1,7 @@
+# Michelle La
+# Jan. 30, 2020
+
+
 import numpy as np
 import SimpleITK as sitk
 from PIL import Image
@@ -45,6 +49,7 @@ def my_registration(fixed_im, moving_im):
     moving_final = sitk.Resample(moving_resampled, fixed_im, final_transform, sitk.sitkLinear, 0.0,
                                  moving_im.GetPixelID())
     # sitk.Show(moving_final)
+
     return moving_final, initial_transform, final_transform
 
 
@@ -63,11 +68,8 @@ def transform_slices(fixed_im, final_transform, voxel_array, w, h):
     for i in range(len(voxel_array[0][0])):
         slice = voxel_array[:, :, i]
         slice_im = Image.fromarray(slice)
-        slice_im = sitk.GetImageFromArray(np.array(slice_im.resize((w, h), Image.LANCZOS), dtype=np.float32), isVector=False)
-
-        # moving_resampled = sitk.Resampl e(slice_im, fixed_im, initial_transform, sitk.sitkLinear, 0.0,
-        #                                  slice_im.GetPixelID())
-
+        slice_im = sitk.GetImageFromArray(np.array(slice_im.resize((w, h), Image.LANCZOS), dtype=np.float32),
+                                          isVector=False)
         transformed_slice = sitk.Resample(slice_im, fixed_im, final_transform, sitk.sitkLinear, 0.0,
                                           slice_im.GetPixelID())
 

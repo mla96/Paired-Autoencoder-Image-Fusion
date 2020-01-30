@@ -1,3 +1,7 @@
+# Michelle La
+# Jan. 30, 2020
+
+
 import numpy as np
 import SimpleITK as sitk
 from PIL import Image
@@ -52,7 +56,6 @@ def channel_NpArray2SitkIm(channel_raw, w, h):
     # # reference_image.SetOrigin(reference_origin)
     # # reference_image.SetSpacing(reference_spacing)
     # # reference_image.SetDirection(reference_direction)
-
 
     # sitk.Show(moving_im_final)
     return moving_im
