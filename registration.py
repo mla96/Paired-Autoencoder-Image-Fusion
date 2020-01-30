@@ -51,26 +51,28 @@ def my_registration(fixed_im, moving_im):
 # Compares two images; useful for comparing un-registered and registered moving images with fixed images
 def checkerboard(image1, image2, filename, writer):
     checker = sitk.CheckerBoard(image1, image2)
-    sitk.Show(checker)
+    # sitk.Show(checker)
     writer.SetFileName(filename + '.tiff')
     writer.Execute(checker)
 
 
 # Register raw time series using a pre-calculated transform from flattened series
 def transform_slices(fixed_im, final_transform, voxel_array, w, h):
-    transformed_voxel_array = np.zeros(shape=(h, w, 1024))
+    # transformed_voxel_array = np.zeros(shape=(h, w, 1024))  # Matches larger size
     transformed_movie_array = np.zeros(shape=(256, 256, 1024))
     for i in range(len(voxel_array[0][0])):
         slice = voxel_array[:, :, i]
-        slice_im = Image.fromarray(slice).resize((w, h))
-        slice_im = sitk.GetImageFromArray(np.array(slice_im, dtype=np.float32), isVector=False)
+        slice_im = Image.fromarray(slice)
+        slice_im = sitk.GetImageFromArray(np.array(slice_im.resize((w, h), Image.LANCZOS), dtype=np.float32), isVector=False)
 
-        # moving_resampled = sitk.Resample(slice_im, fixed_im, initial_transform, sitk.sitkLinear, 0.0,
+        # moving_resampled = sitk.Resampl e(slice_im, fixed_im, initial_transform, sitk.sitkLinear, 0.0,
         #                                  slice_im.GetPixelID())
 
         transformed_slice = sitk.Resample(slice_im, fixed_im, final_transform, sitk.sitkLinear, 0.0,
                                           slice_im.GetPixelID())
-        transformed_voxel_array[:, :, i] = sitk.GetArrayFromImage(transformed_slice)
-        transformed_movie_slice = np.array(Image.fromarray(transformed_voxel_array[:, :, i]).resize((256, 256)), dtype=np.float32)
+
+        # transformed_voxel_array[:, :, i] = sitk.GetArrayFromImage(transformed_slice)
+        transformed_movie_slice = Image.fromarray(sitk.GetArrayFromImage(transformed_slice))
+        transformed_movie_slice = np.array(transformed_movie_slice.resize((256, 256), Image.LANCZOS), dtype=np.float32)
         transformed_movie_array[:, :, i] = transformed_movie_slice
-    return transformed_voxel_array, transformed_movie_array
+    return transformed_movie_array

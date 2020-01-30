@@ -15,6 +15,6 @@ def voxel_movie(array, filename):
 
     ani = animation.FuncAnimation(fig, update_voxel_movie, frames=1024, interval=5)
     # plt.show()
-    ani.save('Data/AMD59/' + filename + '.gif', writer='imagemagick', fps=5, bitrate=5)
+    ani.save(filename + '.gif', writer='imagemagick', fps=5, bitrate=5)
 
     return ani
