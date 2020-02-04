@@ -3,6 +3,8 @@
 
 # Main script to read .sdt files into .mat files; calculate registration transforms; and generate registered arrays,
 # .gifs, and images
+# Fixed image: Fundus data (RGB)
+# Moving image: FLIO data
 
 
 import os
