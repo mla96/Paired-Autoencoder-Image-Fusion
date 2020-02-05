@@ -39,6 +39,7 @@ for subj in lines:
     w_crop, h_crop = moving_image.size
     # moving_image.save(os.path.join(dir_path, "crop"), "TIFF")
     moving_image_resize = moving_image.resize((w_crop // 2, h_crop // 2), Image.LANCZOS)
+    # moving_image_resize = moving_image
 
     moving_image = sitk.RescaleIntensity(sitk.GetImageFromArray(np.array(moving_image, dtype=np.float32), isVector=True))
 
@@ -51,9 +52,7 @@ for subj in lines:
     # moving_image = moving_image.crop((crop_bound, crop_bound, int(w / 2) - crop_bound, int(h / 2) - crop_bound))
     w, h = moving_image_resize.size
     moving_image_resize = np.sum(moving_image_resize, axis=2)
-    # moving_image = np.sum(moving_image, axis=2)
     moving_image_resize = sitk.RescaleIntensity(sitk.GetImageFromArray(np.array(moving_image_resize, dtype=np.float32), isVector=False))
-
 
     for i in range(num_channels):
         channel_path = os.path.join(dir_path, 'measurement_ch0' + str(i + 1) + '.mat')
@@ -63,7 +62,7 @@ for subj in lines:
             fixed_image_fullsize = Image.fromarray(fixed_image_fullsize).resize((w_crop, h_crop), Image.LANCZOS)
             fixed_image_fullsize = sitk.RescaleIntensity(sitk.GetImageFromArray(np.array(fixed_image_fullsize, dtype=np.float32), isVector=False))
             fixed_image = sitk.RescaleIntensity(channel_NpArray2SitkIm(fixed_raw, w, h))
-            # fixed_image_array = fixed_raw / np.max(fixed_raw) * 255
+
             registered_image, init_transform, final_reg_transform = my_registration(fixed_image, moving_image_resize)
             registered_image = sitk.RescaleIntensity(registered_image)
 
@@ -79,11 +78,6 @@ for subj in lines:
             checkerboard(fixed_image, registered_image, os.path.join(dir_path, 'checker_fixed_registered_ch0' + str(i + 1)),
                          writer)
 
-            # Save np array of registered fundus data
-            # can you apply the saved transform to the full sized image? Try it
-            # Registration differs between channels
-            # How to preserve RGB during registration to a BW image?
-
             channel1_registered_image_fullsize = sitk.Resample(channel1_movimage, fixed_image_fullsize, final_reg_transform,
                                                                sitk.sitkLinear, 0.0,
                                                                channel1_movimage.GetPixelID())
@@ -97,6 +91,8 @@ for subj in lines:
             registered_image_fullsize = compose.Execute(channel1_registered_image_fullsize, channel2_registered_image_fullsize, channel3_registered_image_fullsize)
             writer.SetFileName(os.path.join(dir_path, 'registered_fullsize_ch0' + str(i + 1) + '.tiff'))  # Save registered image
             writer.Execute(registered_image_fullsize)
+
+            # Save np array of registered fundus data
             np.save(os.path.join(dir_path, 'registered_ch0' + str(i + 1)), np.array(registered_image_fullsize, dtype=np.float32))
 
             # Save .gif movie of moving and registered FLIO data
