@@ -20,7 +20,7 @@ def channel_Mat2NpArray(path):
 # Specify image parameters as global variable?
 def channel_NpArray2SitkIm(channel_raw, w, h):
     disp_im_array = np.flip(np.sum(channel_raw, axis=2), 0).astype(np.float32)
-    moving_im = Image.fromarray(disp_im_array).resize((w, h))
+    moving_im = Image.fromarray(disp_im_array).resize((w, h), Image.LANCZOS)
     moving_im = sitk.GetImageFromArray(np.array(moving_im, dtype=np.float32), isVector=False)
     # sitk.Show(moving_im)
 
