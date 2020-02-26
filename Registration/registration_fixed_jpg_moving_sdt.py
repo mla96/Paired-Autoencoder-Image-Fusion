@@ -14,7 +14,7 @@ from registration import *
 
 
 os.getcwd()
-os.chdir("../")
+os.chdir("../../")
 
 num_channels = 2  # 2 spectral channels: SSC and LSC
 path = 'Data/AMD_subj_list'  # List of all subject directories for registration
