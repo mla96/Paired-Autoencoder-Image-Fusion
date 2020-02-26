@@ -9,7 +9,7 @@ import albumentations as A
 
 import torch.nn.functional as F
 
-# from autoencoder_aux import *
+from autoencoder_aux_functions import *
 
 import numpy as np
 from torch import optim
@@ -24,8 +24,8 @@ from autoencoder import AutoEncoder
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 data_path = "../../STARE_Data/Test_Crop/train"
-save_model_path = "../SDT-File-Parsing/AutoEncoder_Results"
-valid_data_path = "../STARE_Data/Test_Crop/validation"
+save_model_path = "../../FLIO-Thesis-Project/AutoEncoder/AutoEncoder_Results"
+valid_data_path = "../../STARE_Data/Test_Crop/validation"
 overwrite = True
 
 epoch_num = 150
@@ -84,9 +84,11 @@ unlabeled_dataset = UnlabeledDataset(data_path, transform_pipeline, augmentation
 dataloader = DataLoader(unlabeled_dataset, batch_size=4, shuffle=True, num_workers=4)
 
 # initialize model parameters with normal distribution
-model = AutoEncoder(n_channels=unlabeled_dataset.size[0]).to(device)
+model = AutoEncoder(n_channels=unlabeled_dataset.size[0],
+                    n_encoder_filters=[32, 64, 128, 256, 256],
+                    n_decoder_filters=[256, 128, 64, 32, 32]).to(device)
 model.apply(AutoEncoder.init_weights)
-criterion = nn.MSELoss().cuda()
+criterion = nn.MSELoss().to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.0001)
 # optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
 # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,  'min', factor=0.8)
