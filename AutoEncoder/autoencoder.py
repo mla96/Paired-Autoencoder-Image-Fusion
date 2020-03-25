@@ -9,10 +9,11 @@ import pandas as pd
 import os
 
 import torch.nn.functional as F
+from torchvision import models
 
 from autoencoder_blocks import *
 
-from torchvision.models.resnet import Bottleneck, _resnet
+
 
 
 # tfms = get_transforms(do_flip=False)
@@ -20,6 +21,7 @@ from torchvision.models.resnet import Bottleneck, _resnet
 # data.show_batch(rows=3, figsize=(7, 6))
 
 
+# Get features out of AutoEncoder latent space
 class AutoEncoderTest(nn.Module):
 
     def __init__(self, n_channels, n_encoder_filters, n_decoder_filters, trainable=False):
@@ -121,61 +123,28 @@ class AutoEncoder(nn.Module):
 # print(torch.backends.cudnn.enabled)
 
 
-class ResNetTest(nn.Module):
-    def __init__(self, n_channels, n_encoder_filters, layers, n_decoder_filters, trainable=False):
+class AutoEncoder_ResEncoder(nn.Module):
+    def __init__(self, n_channels, n_decoder_filters, trainable=False):
         super().__init__()
 
-        resnet = _resnet('resnet50', Bottleneck, [3, 4, 6, 3], False, True)
-        block = Bottleneck
+        resnet = models.resnet34()
+        resnet_layers = list(resnet.children())
+        self.resnet_block = nn.Sequential(*resnet_layers[:7])  # Stops right before linear layer
 
         self.n_channels = n_channels
-        self.n_encoder_filters = n_encoder_filters
-        self.n_decoder_filters = n_decoder_filters.insert(0, n_encoder_filters[-1])
+        self.n_decoder_filters = n_decoder_filters.insert(0, 256)  # Insert 256 for resnet34, 1024 for resnet50
         self.trainable = trainable
-
-        self.double_conv_block = DoubleConvBlock(n_channels, n_encoder_filters[0])
-
-
-        # resnet._make_layer(None, None, None)
-        self.layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool)
-        self.layer1 = nn.Sequential(resnet._make_layer(block, n_encoder_filters[0], layers[0]))
-        self.layer2 = nn.Sequential(resnet._make_layer(block, n_encoder_filters[1], layers[1], stride=2))
-        self.layer3 = nn.Sequential(resnet._make_layer(block, n_encoder_filters[2], layers[2], stride=2))
-        self.layer4 = nn.Sequential(resnet._make_layer(block, n_encoder_filters[3], layers[3], stride=2))
-
-        # Top layer
-        self.toplayer = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)  # Reduce channels
-
-        # [32, 64, 128, 256, 256]
-        # down_blocks = [DownBlock(in_channels, out_channels)
-        #                for in_channels, out_channels in zip(n_encoder_filters, n_encoder_filters[1:])]
-        # self.down_block1, self.down_block2, self.down_block3, self.down_block4 = down_blocks[:]
-
-
 
         # [256, 128, 64, 32, 32]
         # The first number is the output from the down blocks, and should be doubled if concatenation for skip connections is happening
         up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
                      for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
-        self.up_block1, self.up_block2, self.up_block3, self.up_block4 = up_blocks[:]
+        self.up_blocks = nn.Sequential(*up_blocks)
         self.out_conv = nn.Conv2d(n_decoder_filters[-1], n_channels, kernel_size=1)
 
     def forward(self, x):
-        x1 = self.layer0(x)
-        x2 = self.layer1(x1)
-        x3 = self.layer2(x2)
-        x4 = self.layer3(x3)
-        x = self.layer4(x4)
-
-        # x1 = self.double_conv_block(x)
-        # x2 = self.down_block1(x1)
-        # x3 = self.down_block2(x2)
-        # x4 = self.down_block3(x3)
-        # x = self.down_block4(x4)
-        x = self.up_block1(x, x4)  # x4, etc. are dummy variables for up_blocks; no concatenation currently happening
-        x = self.up_block2(x, x3)
-        x = self.up_block3(x, x2)
-        x = self.up_block4(x, x1)
+        x = self.resnet_block(x)
+        x = self.up_blocks(x)
         logits = self.out_conv(x)
         return torch.sigmoid(logits)  # Sigmoidal output layer to ensure 0-1
 
@@ -183,5 +152,5 @@ class ResNetTest(nn.Module):
     def init_weights(m):
         if isinstance(m, nn.Conv2d):
             torch.nn.init.xavier_normal_(m.weight)
-            m.bias.data.fill_(0.01)
-
+            if m.bias is not None:
+                m.bias.data.fill_(0.01)
