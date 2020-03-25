@@ -7,14 +7,25 @@ os.chdir("../../../../")
 
 print(os.getcwd())
 
-path = 'OakHome/FLIO/Data/AMD_subj_list'
+path = 'OakFundus/FLIO_Data/AMD_subj_list'
+flimx_path = 'Documents/FLIMX_3/studyData/AMD_13/'
 
 f = open(path, 'r')
 lines = f.readlines()
 f.close()
 
 for line in lines:
-    line = line.strip()
-    files = os.listdir(os.path.join('Documents/FLIMX-master/studyData/AMD/', line.replace('_',  '')))
-    for file in files:
-        shutil.copy(os.path.join('Documents/FLIMX-master/studyData/AMD', line.replace('_',  ''), file), os.path.join('OakHome/FLIO/Data', line))
+    if line != 'AMD_01\n':
+        line = line.strip()
+        print(line)
+        try:
+            files = os.listdir(os.path.join(flimx_path, line.replace('_', '')))
+            if not os.path.exists(os.path.join('OakFundus/FLIO_Data', line, 'FLIO_parameters')):
+                os.mkdir(os.path.join('OakFundus/FLIO_Data', line, 'FLIO_parameters'))
+            for file in files:
+                if 'result' in file:
+                    print(file)
+                    shutil.copy(os.path.join(flimx_path, line.replace('_',  ''), file),
+                                os.path.join('OakFundus/FLIO_Data', line, 'FLIO_parameters'))
+        except:
+            print(line + ' not found')
