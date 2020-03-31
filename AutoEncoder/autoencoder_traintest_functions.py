@@ -127,7 +127,6 @@ def tensors_to_images(tensors, filenames, valid_data_path):
                 minimum = np.min(channel)
                 maximum = np.max(channel)
                 volume[:, :, j] = 255 * (channel - minimum) / (maximum - minimum)
-                print(volume[:, :, j])
             image = transform(np.uint8(volume))
             file_name = filenames[i][0].split('.')
             image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',

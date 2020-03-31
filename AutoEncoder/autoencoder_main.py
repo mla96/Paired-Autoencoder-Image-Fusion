@@ -21,9 +21,11 @@ model_base_name = "autoencoder_imbweight"
 # Training parameters
 model_architecture = "Res34"  # Options: noRes, Res34
 epoch_num = 300
-train_data_type = AMDonly  # Options: None, AMDonly
+train_data_type = "AMDonly"  # Options: None, AMDonly
 batch_size = 20
 num_workers = 12
+plot_steps = 200  # Number of steps between getting random input/output to show training progress
+stop_condition = 10000  # Number of steps without improvement for early stopping
 
 
 overwrite = True
@@ -60,17 +62,19 @@ augmentation_pipeline = A.Compose(
 unlabeled_dataset = ImbalancedDataset(data_paths_AMD, augmentations=augmentation_pipeline)
 dataloader = DataLoader(unlabeled_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
 
-# initialize model parameters with normal distribution
-model = AutoEncoder_ResEncoder(n_channels=n_channels,
-                    n_decoder_filters=[128, 64, 32, 32],
-                    trainable=False).to(device)
-model.apply(AutoEncoder_ResEncoder.init_weights)  # Initialize weights
 
-# model = AutoEncoder(n_channels=n_channels,
-#                     n_encoder_filters=[32, 64, 128, 256, 256],
-#                     n_decoder_filters=[128, 64, 32, 32],
-#                     trainable=False)  #.to(device)
-# model.apply(AutoEncoder.init_weights)  # Initialize weights
+if model_architecture == "Res34":
+    model = AutoEncoder_ResEncoder(n_channels=n_channels,
+                        n_decoder_filters=[128, 64, 32, 32],
+                        trainable=False).to(device)
+    model.apply(AutoEncoder_ResEncoder.init_weights)  # initialize model parameters with normal distribution
+else:  # noRes
+    model = AutoEncoder(n_channels=n_channels,
+                        n_encoder_filters=[32, 64, 128, 256, 256],
+                        n_decoder_filters=[128, 64, 32, 32],
+                        trainable=False)  #.to(device)
+    model.apply(AutoEncoder.init_weights)  # Initialize weights
+
 
 if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
@@ -86,7 +90,7 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.8)
 save_model_path_filename = os.path.join(model_output_path, model_name + '.pth')
 if not os.path.isfile(save_model_path_filename) or overwrite:
     train(model, dataloader, epoch_num, criterion, optimizer, scheduler, device, model_output_path,
-          plot_steps=200, stop_condition=10000, sample_weights=sample_weights)
+          plot_steps=plot_steps, stop_condition=stop_condition, sample_weights=sample_weights)
     torch.save(model.state_dict(), save_model_path_filename)
 else:
     model.load_state_dict(torch.load(save_model_path_filename))
