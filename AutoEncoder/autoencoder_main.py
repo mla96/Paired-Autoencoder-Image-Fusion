@@ -6,6 +6,8 @@ from autoencoder import *
 from autoencoder_datasets import ImbalancedDataset, UnlabeledDataset
 from autoencoder_traintest_functions import train, test, tensors_to_images
 
+from torch.utils.tensorboard import SummaryWriter
+
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -20,11 +22,11 @@ model_base_name = "autoencoder_imbweight"
 
 # Training parameters
 model_architecture = "Res34"  # Options: noRes, Res34
-epoch_num = 300
+epoch_num = 50
 train_data_type = "AMDonly"  # Options: None, AMDonly
 batch_size = 20
 num_workers = 12
-plot_steps = 200  # Number of steps between getting random input/output to show training progress
+plot_steps = 50  # Number of steps between getting random input/output to show training progress
 stop_condition = 10000  # Number of steps without improvement for early stopping
 
 
@@ -89,9 +91,17 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.8)
 # TRAINING
 save_model_path_filename = os.path.join(model_output_path, model_name + '.pth')
 if not os.path.isfile(save_model_path_filename) or overwrite:
-    train(model, dataloader, epoch_num, criterion, optimizer, scheduler, device, model_output_path,
+    tensorboard_writer = SummaryWriter(model_output_path)
+    dummy = torch.zeros([20, 3, 256, 256], dtype=torch.float)
+    tensorboard_writer.add_graph(model, input_to_model=(dummy.to(device), ), verbose=True)
+    # tensorboard_writer.add_graph(model, input_to_model=(image,), verbose=True)
+
+    train(model, dataloader, epoch_num, criterion, optimizer, scheduler, device, tensorboard_writer,
           plot_steps=plot_steps, stop_condition=stop_condition, sample_weights=sample_weights)
     torch.save(model.state_dict(), save_model_path_filename)
+
+    tensorboard_writer.flush()
+    tensorboard_writer.close()
 else:
     model.load_state_dict(torch.load(save_model_path_filename))
 
