@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import torch
+import torch.nn as nn
 from torchvision.transforms import transforms
 from matplotlib import pyplot as plt
 plt.switch_backend('agg')
@@ -33,7 +34,15 @@ def custom_mse_loss(output, target, sample_weight):
     return loss
 
 
-def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device, writer,
+def custom_l1_loss(output, target, sample_weight):
+    loss = 0
+    errors = np.abs(output - target)
+    for w, error in zip(sample_weight, errors):
+        loss += torch.mean(w * error)
+    return loss
+
+
+def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device, writer, output_path,
           plot_steps=1000, stop_condition=4000, sample_weights=None):
     model.train()
     if stop_condition:
@@ -49,7 +58,7 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
             loss = criterion(output, target)
             step = i + epoch * len(trainloader)
 
-            if isinstance(file_labelweight, list) and sample_weights:
+            if criterion == nn.MSELoss().to(device) and isinstance(file_labelweight, list) and sample_weights:
                 _, label = file_labelweight
                 sample_weight = torch.tensor([sample_weights[l] for l in label]).cuda()
                 loss = custom_mse_loss(output, target, sample_weight)
@@ -58,6 +67,15 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
 
             running_loss += loss.item()
             print(i)
+            if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
+                randint = np.random.randint(0, image.size()[0])
+                input_im = image.detach().cpu().numpy()[randint]
+                output_im = output.detach().cpu().numpy()[randint]
+                input_im, output_im = np.transpose(input_im, (1, 2, 0)), np.transpose(output_im, (1, 2, 0))
+
+                plot_tensors_tensorboard(input_im, output_im, step, epoch, running_loss / len(trainloader),
+                                         writer, output_path)
+
             if i % len(trainloader) == len(trainloader) - 1:
                 print('[Epoch: {}, i: {}] loss: {:.5f}'.format(epoch + 1, i + 1, running_loss / len(trainloader)))
                 # Tensorboard
@@ -69,14 +87,6 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
                         print('Early stop at [Epoch: {}, i: {}] loss: {:.5f}'.format(epoch + 1, i + 1, running_loss / len(trainloader)))
 
                 running_loss = 0
-
-            if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
-                randint = np.random.randint(0, image.size()[0])
-                input_im = image.detach().cpu().numpy()[randint]
-                output_im = output.detach().cpu().numpy()[randint]
-                input_im, output_im = np.transpose(input_im, (1, 2, 0)), np.transpose(output_im, (1, 2, 0))
-
-                plot_tensors_tensorboard(input_im, output_im, step, writer)
 
         torch.save(model.state_dict(), 'checkpoint.pth')
         epoch_log.write('Epoch: ' + str(epoch))
@@ -110,10 +120,10 @@ def tensors_to_images(tensors, filenames, valid_data_path):
     for i in range(len(tensors)):
         for volume in tensors[i]:
             volume = volume.cpu().numpy().transpose((1, 2, 0))
+            minimum = np.min(volume)  # Normalize images by volume for correct color rendering
+            maximum = np.max(volume)
             for j in range(volume.shape[2]):
                 channel = volume[:, :, j]
-                minimum = np.min(channel)
-                maximum = np.max(channel)
                 volume[:, :, j] = 255 * (channel - minimum) / (maximum - minimum)
             image = transform(np.uint8(volume))
             file_name = filenames[i][0].split('.')
