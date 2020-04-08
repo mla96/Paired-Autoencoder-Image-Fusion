@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-This file contains custom loss functions for model training.
+This file contains custom loss functions for model training with PyTorch.
 
 Contents
 ---

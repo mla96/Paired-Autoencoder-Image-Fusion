@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-This file contains functions for AutoEncoder model training and testing.
+This file contains functions for AutoEncoder model training and testing with PyTorch.
 
 Contents
 ---
@@ -11,7 +11,7 @@ Contents
 """
 
 
-from PIL import Image
+import PIL.Image
 
 import torch.nn as nn
 from torchvision.transforms import transforms
@@ -59,7 +59,7 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
             if criterion == nn.MSELoss().to(device) and isinstance(file_labelweight, list) and sample_weights:
                 _, label = file_labelweight
                 sample_weight = torch.tensor([sample_weights[l] for l in label]).cuda()
-                loss = custom_mse_loss(output, target, sample_weight)
+                loss = weighted_mse_loss(output, target, sample_weight)
             loss.backward()
             optimizer.step()
 
@@ -160,7 +160,7 @@ def tensors_to_images_norm(tensors, filenames, valid_data_path):
         volume = volume * 0.5 + 0.5  # Denormalizes to [0, 1]
         volume *= 255  # Scales to [0, 255]
         print(volume)
-        image = Image.fromarray(np.uint8(volume))
+        image = PIL.Image.fromarray(np.uint8(volume))
         file_name = file_name[0].split('.')
         image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
                    quality=quality_val)

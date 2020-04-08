@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-This file is the main script to train an AutoEncoder on a square image set. The training set is a collection of publicly
-available RGB fundus images that have been appropriately resized and cropped.
-This file includes calling the AutoEncoder model with hyperparameters, training, and validation.
+This file is the main script to train an AutoEncoder model on a square image set with PyTorcb.
+The training set is a collection of publicly available RGB fundus images that have been appropriately resized and
+cropped.
+This file includes calling the AutoEncoder with hyperparameters, training, and validation.
 
 """
 
