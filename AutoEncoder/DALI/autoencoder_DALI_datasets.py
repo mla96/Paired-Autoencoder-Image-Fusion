@@ -39,11 +39,11 @@ class DaliImbalancedDataset:
             file_path, label = self.file_paths[self.i]
             image = skimage.io.imread(file_path)
             images.append(image)
-            labels.append(label)
+            labels.append([label])
             print(file_path)
             self.i = (self.i + 1) % self.n
         targets = images[:]
-        return images, labels
+        return images, np.array(labels)
 
     def __len__(self):
         return len(self.file_paths)
@@ -101,7 +101,7 @@ class DaliImbalancedPipeline(Pipeline):
     def iter_setup(self):
         images, labels = self.iterator.next()
         self.feed_input(self.jpegs, images, layout="HWC")
-        self.feed_input(self.labels, labels)
+        self.feed_input(self.labels, labels, layout="")
 
 
 class DaliSimplePipeline(Pipeline):

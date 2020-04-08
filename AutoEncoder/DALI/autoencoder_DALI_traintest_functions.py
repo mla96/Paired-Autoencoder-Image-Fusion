@@ -34,10 +34,10 @@ def custom_mse_loss(output, target, sample_weight):
     return loss
 
 
-def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device, path,
+def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device,
           plot_steps=1000, stop_condition=4000, sample_weights=None):
     model.train()
-    writer = SummaryWriter(path)
+    # writer = SummaryWriter(path)
     if stop_condition:
         stop_condition = StopCondition(stop_condition)
     epoch_log = open("log.txt", "a")
@@ -63,7 +63,7 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
             if i % len(trainloader) == len(trainloader) - 1:
                 print('[Epoch: {}, i: {}] loss: {:.5f}'.format(epoch + 1, i + 1, running_loss / len(trainloader)))
                 # Tensorboard
-                writer.add_scalar('train', running_loss / len(trainloader), step)
+                # writer.add_scalar('train', running_loss / len(trainloader), step)
 
                 if stop_condition:
                     stop_condition.evaluate_stop(running_loss)
@@ -72,27 +72,27 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
 
                 running_loss = 0
 
-            if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
-                fig = plt.figure()
-                randint = np.random.randint(0, trainloader.batch_size - 1)
-                input_im = image.detach().cpu().numpy()[randint]
-                output_im = output.detach().cpu().numpy()[randint]
-                input_im, output_im = np.transpose(input_im, (1, 2, 0)), np.transpose(output_im, (1, 2, 0))
-                plt.title("Step " + str(step), y=0.9)
-                plt.axis('off')
-                fig.add_subplot(1, 2, 1)
-                plt.imshow(input_im)
-                plt.axis('off')
-                fig.add_subplot(1, 2, 2)
-                plt.imshow(output_im)
-                plt.axis('off')
-                # plt.show()
-                writer.add_figure('train', fig, step)
+            # if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
+            #     fig = plt.figure()
+            #     randint = np.random.randint(0, trainloader.batch_size - 1)
+            #     input_im = image.detach().cpu().numpy()[randint]
+            #     output_im = output.detach().cpu().numpy()[randint]
+            #     input_im, output_im = np.transpose(input_im, (1, 2, 0)), np.transpose(output_im, (1, 2, 0))
+            #     plt.title("Step " + str(step), y=0.9)
+            #     plt.axis('off')
+            #     fig.add_subplot(1, 2, 1)
+            #     plt.imshow(input_im)
+            #     plt.axis('off')
+            #     fig.add_subplot(1, 2, 2)
+            #     plt.imshow(output_im)
+            #     plt.axis('off')
+            #     # plt.show()
+            #     writer.add_figure('train', fig, step)
 
         torch.save(model.state_dict(), 'checkpoint.pth')
         epoch_log.write('Epoch: ' + str(epoch))
         scheduler.step(loss)
-    writer.close()
+    # ƒwriter.close()
     epoch_log.close()
 
 
