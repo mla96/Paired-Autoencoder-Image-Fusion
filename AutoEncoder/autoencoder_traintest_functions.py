@@ -1,14 +1,28 @@
-import os
+#!/usr/bin/env python3
+"""
+This file contains functions for AutoEncoder model training and testing.
 
-import numpy as np
-import torch
+Contents
+---
+    StopCondition :
+        evaluate_stop() : evaluates whether early stopping of training should occur at some step
+    train() : trains model
+    test() : validates model
+"""
+
+
+from PIL import Image
+
 import torch.nn as nn
 from torchvision.transforms import transforms
+
 from matplotlib import pyplot as plt
 plt.switch_backend('agg')
-from tensorboard_functions import *
+
+from loss_utils import *
 
 
+# Early stopping
 class StopCondition:
     def __init__(self, patience):
         self.patience = patience  # How many steps to evaluate model improvement
@@ -24,22 +38,6 @@ class StopCondition:
             self.patience_step += 1
             if self.patience_step >= self.patience:
                 self.stop = True
-
-
-def custom_mse_loss(output, target, sample_weight):
-    loss = 0
-    errors = (output - target) ** 2
-    for w, error in zip(sample_weight, errors):
-        loss += torch.mean(w * error)
-    return loss
-
-
-def custom_l1_loss(output, target, sample_weight):
-    loss = 0
-    errors = np.abs(output - target)
-    for w, error in zip(sample_weight, errors):
-        loss += torch.mean(w * error)
-    return loss
 
 
 def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device, writer, output_path,
@@ -66,7 +64,8 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
             optimizer.step()
 
             running_loss += loss.item()
-            print(i)
+            if i % 100 == 0:
+                print(i)
             if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
                 randint = np.random.randint(0, image.size()[0])
                 input_im = image.detach().cpu().numpy()[randint]
@@ -113,6 +112,26 @@ def test(model, testloader, criterion, device):
     return outputs, losses, filenames
 
 
+def test_norm(model, testloader, criterion, device):
+    model.eval()
+    outputs = []
+    losses = []
+    filenames = []
+    with torch.no_grad():
+        for image, target, file_labelweight in testloader:
+            image, target = image.to(device), target.to(device)
+            print(image)
+            output = model(image)
+            outputs.append(output)
+            losses.append(criterion(output, target))
+            if isinstance(file_labelweight, list):
+                filenames.append(file_labelweight[0])  # appends file_name
+            else:
+                filenames.append(file_labelweight)
+
+    return outputs, losses, filenames
+
+
 # Convert output to RGB images
 def tensors_to_images(tensors, filenames, valid_data_path):
     quality_val = 90
@@ -129,3 +148,19 @@ def tensors_to_images(tensors, filenames, valid_data_path):
             file_name = filenames[i][0].split('.')
             image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
                        quality=quality_val)
+
+
+# Convert output to RGB images
+def tensors_to_images_norm(tensors, filenames, valid_data_path):
+    quality_val = 90
+    # transform = transforms.ToPILImage()
+    for tensor, file_name in zip(tensors, filenames):
+        volume = tensor[0]  # Batch size will always be 1
+        volume = volume.cpu().numpy().transpose((1, 2, 0))
+        volume = volume * 0.5 + 0.5  # Denormalizes to [0, 1]
+        volume *= 255  # Scales to [0, 255]
+        print(volume)
+        image = Image.fromarray(np.uint8(volume))
+        file_name = file_name[0].split('.')
+        image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
+                   quality=quality_val)
