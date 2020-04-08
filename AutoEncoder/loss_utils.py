@@ -9,7 +9,7 @@ Contents
 """
 
 
-from tensorboard_functions import *
+from tensorboard_utils import *
 import torch
 
 
