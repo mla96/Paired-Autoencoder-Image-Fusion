@@ -70,15 +70,6 @@ class AutoEncoder(nn.Module):
             torch.nn.init.xavier_normal_(m.weight)
             m.bias.data.fill_(0.01)
 
-    # def init_weight(self):
-    #     def init_func(m):  # define the initialization function
-    #         classname = m.__class__.__name__
-    #         if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
-    #             torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
-    #
-    #      return self.segop.apply(init_func)
-
-
 
 class AutoEncoder_ResEncoder(nn.Module):
     def __init__(self, n_channels, n_decoder_filters, trainable=False):

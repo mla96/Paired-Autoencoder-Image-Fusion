@@ -4,12 +4,11 @@ This file contains classes and functions to construct model architecture blocks 
 
 Contents
 ---
-    ConvBlock :
-    DoubleConvBlock :
-    DownBlock :
-    DownResBlock :
-    UpBlock :
-    UpResBlock :
+    ConvBlock : basic convolution block with Conv2d, BatchNorm2d, and activation of choice
+    DoubleConvBlock : double ConvBlock with ReLu activations
+    DownBlock : MaxPool2d with DoubleConvBlock
+    UpBlock : if "trainable" (currently used), ConvTranspose2d; if not, bilinear Upsample; combine with DoubleConvBlock
+    UpResBlock : not currently used
 """
 
 
@@ -65,17 +64,17 @@ class DownBlock(nn.Module):
         return self.down_block(x)
 
 
-class DownResBlock(nn.Module):
-    # For concatenating tensors, enabling skip connections within encoder (Down)
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
-        super().__init__()
-        self.down_block = nn.Sequential(
-            nn.MaxPool2d(2),
-            DoubleConvBlock(in_channels, out_channels, kernel_size=kernel_size, padding=padding)
-        )
-
-    def forward(self, x):
-        return self.down_block(x)
+# class DownResBlock(nn.Module):
+#     # For concatenating tensors, enabling skip connections within encoder (Down)
+#     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+#         super().__init__()
+#         self.down_block = nn.Sequential(
+#             nn.MaxPool2d(2),
+#             DoubleConvBlock(in_channels, out_channels, kernel_size=kernel_size, padding=padding)
+#         )
+#
+#     def forward(self, x):
+#         return self.down_block(x)
 
 
 class UpBlock(nn.Module):

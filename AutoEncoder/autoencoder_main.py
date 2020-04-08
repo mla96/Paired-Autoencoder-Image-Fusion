@@ -74,9 +74,9 @@ transformation_pipeline = A.Compose(
 augmentation_pipeline = A.Compose(
     [A.HorizontalFlip(p=0.5), A.VerticalFlip(p=0.5),
      A.RandomRotate90(p=0.5),
-     A.RandomCrop(128, 128, p=1.0),
-     A.HueSaturationValue(p=0.3),
-     A.RandomBrightnessContrast(p=0.3)]
+     A.RandomCrop(128, 128, p=1.0)]
+     # A.HueSaturationValue(p=0.3),  # Use color augmentations? Some results seem to get worse
+     # A.RandomBrightnessContrast(p=0.3)]
 )
 
 # Load training set
