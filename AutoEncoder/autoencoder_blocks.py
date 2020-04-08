@@ -1,3 +1,18 @@
+#!/usr/bin/env python3
+"""
+This file contains classes and functions to construct model architecture and forward propagation with PyTorch.
+
+Contents
+---
+    ConvBlock :
+    DoubleConvBlock :
+    DownBlock :
+    DownResBlock :
+    UpBlock :
+    UpResBlock :
+"""
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,12 +20,18 @@ import torch.nn.functional as F
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, activation='relu'):
         super().__init__()
+        activations = nn.ModuleDict({
+            'relu': nn.ReLU(),
+            'sigmoid': nn.Sigmoid(),
+            'tanh': nn.Tanh()
+        })
+
         self.conv_block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU()
+            activations[activation]
         )
 
     def forward(self, x):
@@ -100,6 +121,7 @@ class UpResBlock(nn.Module):
 
         x = torch.cat([x2, x1], dim=1)
         return self.double_conv_block(x)
+
 
 # class OutConv(nn.Module):
 #     def __init__(self, in_channels, out_channels):
