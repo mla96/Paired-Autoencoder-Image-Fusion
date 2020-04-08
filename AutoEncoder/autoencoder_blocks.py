@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-This file contains classes and functions to construct model architecture and forward propagation with PyTorch.
+This file contains classes and functions to construct model architecture blocks with forward propagation in PyTorch.
 
 Contents
 ---
