@@ -8,16 +8,15 @@ Contents
         evaluate_stop() : evaluates whether early stopping of training should occur at some step
     train() : trains model
     test() : validates model
+    tensors_to_images() : converts tensors to RGB PIL images and saves them
 """
 
 
-import PIL.Image
-
 import torch.nn as nn
-from torchvision.transforms import transforms
 
 from matplotlib import pyplot as plt
 plt.switch_backend('agg')
+import PIL.Image
 
 from loss_utils import *
 
@@ -112,48 +111,8 @@ def test(model, testloader, criterion, device):
     return outputs, losses, filenames
 
 
-def test_norm(model, testloader, criterion, device):
-    model.eval()
-    outputs = []
-    losses = []
-    filenames = []
-    with torch.no_grad():
-        for image, target, file_labelweight in testloader:
-            image, target = image.to(device), target.to(device)
-            print(image)
-            output = model(image)
-            outputs.append(output)
-            losses.append(criterion(output, target))
-            if isinstance(file_labelweight, list):
-                filenames.append(file_labelweight[0])  # appends file_name
-            else:
-                filenames.append(file_labelweight)
-
-    return outputs, losses, filenames
-
-
-# Convert output to RGB images
 def tensors_to_images(tensors, filenames, valid_data_path):
     quality_val = 90
-    transform = transforms.ToPILImage()
-    for i in range(len(tensors)):
-        for volume in tensors[i]:
-            volume = volume.cpu().numpy().transpose((1, 2, 0))
-            minimum = np.min(volume)  # Normalize images by volume for correct color rendering
-            maximum = np.max(volume)
-            for j in range(volume.shape[2]):
-                channel = volume[:, :, j]
-                volume[:, :, j] = 255 * (channel - minimum) / (maximum - minimum)
-            image = transform(np.uint8(volume))
-            file_name = filenames[i][0].split('.')
-            image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
-                       quality=quality_val)
-
-
-# Convert output to RGB images
-def tensors_to_images_norm(tensors, filenames, valid_data_path):
-    quality_val = 90
-    # transform = transforms.ToPILImage()
     for tensor, file_name in zip(tensors, filenames):
         volume = tensor[0]  # Batch size will always be 1
         volume = volume.cpu().numpy().transpose((1, 2, 0))
@@ -164,3 +123,17 @@ def tensors_to_images_norm(tensors, filenames, valid_data_path):
         file_name = file_name[0].split('.')
         image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
                    quality=quality_val)
+    # transform = transforms.ToPILImage()
+    # for i in range(len(tensors)):
+    #     for volume in tensors[i]:
+    #         volume = volume.cpu().numpy().transpose((1, 2, 0))
+    #         minimum = np.min(volume)  # Normalize images by volume for correct color rendering
+    #         maximum = np.max(volume)
+    #         for j in range(volume.shape[2]):
+    #             channel = volume[:, :, j]
+    #             volume[:, :, j] = 255 * (channel - minimum) / (maximum - minimum)
+    #         image = transform(np.uint8(volume))
+    #         file_name = filenames[i][0].split('.')
+    #         image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
+    #                    quality=quality_val)
+

@@ -1,5 +1,16 @@
-import os
+#!/usr/bin/env python3
+"""
+This file contains classes and functions to instantiate custom PyTorch Datasets.
 
+Contents
+---
+    UnlabeledDataset : load unlabeled images for AutoEncoder model
+    ImbalancedDataset : almost the same thing as UnlabeledDataset but accommodates sample weights; will likely combine
+    PairedUnlabeledDataset : load unlabeled RGB fundus images paired with FLIO data as .mat parameters
+"""
+
+
+import os
 import PIL.Image
 import hdf5storage
 import numpy as np
@@ -8,7 +19,7 @@ import torch
 from torch.utils.data.dataset import Dataset
 
 
-class UnlabeledDataset(Dataset):  # Use Dataset or TensorDataset?
+class UnlabeledDataset(Dataset):
 
     def __init__(self, data_paths, valid_file_types=('jpg', 'jpeg', 'tiff'), augmentations=None):
         self.data_paths = data_paths
@@ -16,15 +27,6 @@ class UnlabeledDataset(Dataset):  # Use Dataset or TensorDataset?
         self.file_paths = []
         for data_path in data_paths:
             self.file_paths.extend(self.get_file_paths(data_path))
-
-        # self.data = []
-        # self.file_names = []
-
-        # for data_path in data_paths:
-        #     temp_data, temp_file_names = self.images_to_tensors(data_path)
-        #     self.data.extend(temp_data)
-        #     self.file_names.extend(temp_file_names)
-
         self.augmentations = augmentations
         # self.size = self.get_size()
 
@@ -35,7 +37,7 @@ class UnlabeledDataset(Dataset):  # Use Dataset or TensorDataset?
             augmented = self.augmentations(image=image)
             image = augmented['image']
         image = np.transpose(image, (2, 1, 0))
-        image = torch.from_numpy(image / 255).float()
+        image = torch.from_numpy(image).float()
         target = image
         return image, target, os.path.basename(file_path)
 
@@ -47,47 +49,23 @@ class UnlabeledDataset(Dataset):  # Use Dataset or TensorDataset?
     #     image = PIL.Image.open(file_path)
     #     tensor_image = self.transformations(np.array(image))
     #     return tensor_image.size()
-
-    # def __getitem__(self, index):
-    #     image = None
-    #     if self.augmentations:
-    #         raw_image = np.array(self.data[index])
-    #         augmented = self.augmentations(image=raw_image)
-    #         image = self.transformations(augmented['image'])
-    #     else:
-    #         image = self.transformations(self.data[index])
-    #     label = image
-    #     return image, label, self.file_names[index]
     #
     # def __len__(self):
     #     return len(self.data)
 
     def get_file_paths(self, data_path):
         files = os.listdir(data_path)  # Extracts the file names technically
-        return [os.path.join(data_path, file) for file in files if 'jpg' in file or 'jpeg' in file]
-
-    # Too memory intensive because it opens image every time to store in array
-    # def images_to_tensors(self, data_path):
-    #     files = sorted(os.listdir(data_path))
-    #     data = []
-    #     file_names = []
-    #     for file in files:
-    #         if 'jpg' in file or 'jpeg' in file:
-    #             img = PIL.Image.open(os.path.join(data_path, file))
-    #             copy_img = img.copy()
-    #             data.append(copy_img)
-    #             file_names.append(file)
-    #     return data, file_names
+        return [os.path.join(data_path, file) for file in files if '.jpg' in file or '.jpeg' in file]
 
 
 # Labels for AMD (or mixed sets) and non-AMD data for sample weighting during transfer learning
 class ImbalancedDataset(Dataset):
 
-    def __init__(self, data_paths_1, data_paths_2=[], # sample_weights=[0.005, 0.995],
-                 augmentations=None):
+    def __init__(self, data_paths_1, data_paths_2=[], sample_weights=[0.005, 0.995],
+                 transformations=None, augmentations=None):
         self.data_paths_1 = data_paths_1  # Label 1 samples
         self.data_paths_2 = data_paths_2  # Label 2 samples
-        # self.sample_weights = sample_weights  # Weighting each sample for contributions to the loss
+        self.sample_weights = sample_weights  # Weighting each sample for contributions to the loss
         self.labels = [0, 1]  # In case I want different labels
         self.file_paths = []
         for data_path in self.data_paths_1:
@@ -95,17 +73,18 @@ class ImbalancedDataset(Dataset):
         for data_path in self.data_paths_2:
             self.file_paths.extend(self.get_file_paths(data_path, self.labels[1]))
 
+        self.transformations = transformations
         self.augmentations = augmentations
         # self.size = self.get_size()
 
     def __getitem__(self, index):
         file_path, label = self.file_paths[index]
         image = skimage.io.imread(file_path)
+        image = self.transformations(image=image).get('image')  # Normalizes to [-1, 1]
         if self.augmentations:
-            augmented = self.augmentations(image=image)
-            image = augmented['image']
-        image = np.transpose(image, (2, 1, 0))
-        image = torch.from_numpy(image / 255).float()
+            image = self.augmentations(image=image).get('image')
+        image = np.transpose(image, (2, 0, 1))
+        image = torch.from_numpy(image).float()
         target = image
         return image, target, (os.path.basename(file_path), label)
 
@@ -114,10 +93,9 @@ class ImbalancedDataset(Dataset):
 
     def get_file_paths(self, data_path, label):
         files = os.listdir(data_path)  # Extracts the file names technically
-        return [(os.path.join(data_path, file), label) for file in files if 'jpg' in file or 'jpeg' in file]
+        return [(os.path.join(data_path, file), label) for file in files if '.jpg' in file or '.jpeg' in file]
 
 
-# For paired RGB fundus images and FLIO parameter map data
 class PairedUnlabeledDataset(UnlabeledDataset):
     # data_path leads to subject directories that contain both RGB fundus images and FLIO parameter maps
     def __init__(self, data_path, subdirectories, filetype, spectral_channel, augmentations=None):

@@ -86,24 +86,23 @@ class AutoEncoder_ResEncoder(nn.Module):
 
         resnet = models.resnet34()
         resnet_layers = list(resnet.children())
-        self.resnet_block = nn.Sequential(*resnet_layers[:7])  # Stops right before linear layer
+        self.resnet_block = nn.Sequential(*resnet_layers[:8])  # Stops right before linear layer
 
         self.n_channels = n_channels
-        self.n_decoder_filters = n_decoder_filters.insert(0, 256)  # Insert 256 for resnet34, 1024 for resnet50
+        self.n_decoder_filters = n_decoder_filters.insert(0, 512)  # Insert here the number of filters the resnet ends on
         self.trainable = trainable
 
-        # [256, 128, 64, 32, 32]
+        # [256, 128, 64, 32]
         # The first number is the output from the down blocks, and should be doubled if concatenation for skip connections is happening
         up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
                      for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
         self.up_blocks = nn.Sequential(*up_blocks)
-        self.out_conv = nn.Conv2d(n_decoder_filters[-1], n_channels, kernel_size=1)
+        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh')
 
     def forward(self, x):
         x = self.resnet_block(x)
         x = self.up_blocks(x)
-        logits = self.out_conv(x)
-        return torch.sigmoid(logits)  # Sigmoidal output layer to ensure 0-1
+        return self.out_conv(x)
 
     @staticmethod
     def init_weights(m):
