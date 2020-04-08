@@ -4,7 +4,7 @@ from PIL import ImageFile
 
 from autoencoder import *
 from autoencoder_datasets import ImbalancedDataset, UnlabeledDataset
-from hdf5_dataset import ImbalancedHDF5Dataset, get_labeled_file_names
+from hdf5_dataset import ImbalancedHDF5Dataset, get_data_dictionary, save_dataset, get_default_dict_specs
 from autoencoder_traintest_functions import train, test, tensors_to_images
 
 from torch.utils.tensorboard import SummaryWriter
@@ -15,20 +15,20 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 transfer_data_path = "../../../../OakData/Transfer_learning_datasets"
 data_paths = [os.path.join(transfer_data_path, "train"),
-              os.path.join(transfer_data_path, "KaggleDR_crop")]
+              os.path.join(transfer_data_path, "KaggleDR_crop512")]
 data_paths_AMD = [os.path.join(transfer_data_path, "train_AMD")]
 valid_data_path = [os.path.join(transfer_data_path, "validation")]
-save_path = os.path.join(transfer_data_path, "train.hdf5")
+save_path = os.path.join(transfer_data_path, "train_full_Kaggle512.hdf5")
 save_model_path = "../../FLIO-Thesis-Project/AutoEncoder/AutoEncoder_Results"
-model_base_name = "autoencoder_imbweight_hdf5"
+model_base_name = "autoencoder_imbweight_hdf5_crop512"
 
 # Training parameters
 model_architecture = "Res34"  # Options: noRes, Res34
-epoch_num = 50
-train_data_type = "AMDonly"  # Options: None, AMDonly
+epoch_num = 1
+train_data_type = "None"  # Options: None, AMDonly
 batch_size = 20
 num_workers = 12
-plot_steps = 50  # Number of steps between getting random input/output to show training progress
+plot_steps = 500  # Number of steps between getting random input/output to show training progress
 stop_condition = 10000  # Number of steps without improvement for early stopping
 
 
@@ -63,8 +63,11 @@ augmentation_pipeline = A.Compose(
     [A.HorizontalFlip(p=0.5), A.VerticalFlip(p=0.5), A.RandomRotate90(p=0.5), A.RandomCrop(128, 128, p=1.0)]
 )
 
-file_names = get_labeled_file_names(data_paths, data_paths_AMD)
-unlabeled_dataset = ImbalancedHDF5Dataset(file_names, save_path, augmentations=augmentation_pipeline)
+data_dictionary = get_data_dictionary(data_paths, data_paths_AMD)
+save_dataset(data_dictionary, save_path, overwrite=True)
+data_specs = get_default_dict_specs(data_dictionary)
+print(data_specs)
+unlabeled_dataset = ImbalancedHDF5Dataset(data_dictionary, data_specs, save_path, augmentations=augmentation_pipeline)
 dataloader = DataLoader(unlabeled_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
 
 
