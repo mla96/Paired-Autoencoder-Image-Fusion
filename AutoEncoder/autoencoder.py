@@ -27,42 +27,26 @@ class AutoEncoder(nn.Module):
 
         self.double_conv_block = DoubleConvBlock(n_channels, n_encoder_filters[0])
 
-
-        # [32, 64, 128, 256, 256]
+        # [32, 64, 128, 256]
         down_blocks = [DownBlock(in_channels, out_channels)
                        for in_channels, out_channels in zip(n_encoder_filters, n_encoder_filters[1:])]
-        self.down_block1, self.down_block2, self.down_block3 = down_blocks[:]
+        self.down_blocks = nn.Sequential(*down_blocks)
 
-        # [256, 128, 64, 32, 32]
-        # The first number is the output from the down blocks, and should be doubled if concatenation for skip connections is happening
+        # [128, 64, 32]
         up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
                      for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
-        self.up_block1, self.up_block2, self.up_block3 = up_blocks[:]
+        up_blocks[-1] = UpBlock(n_decoder_filters[-2], n_decoder_filters[-1], trainable=trainable, is_batch_norm=False)
+        self.up_blocks = nn.Sequential(*up_blocks)
+
+        # Uses tanh output layer to ensure -1 to 1
+        # Potential parameters are kernel_size=3 and padding=1
         self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh')
 
     def forward(self, x):
-        x1 = self.double_conv_block(x)
-        x2 = self.down_block1(x1)
-        x3 = self.down_block2(x2)
-        x = self.down_block3(x3)
-        # x4 = self.down_block3(x3)
-        # x = self.down_block4(x4)
-        x = self.up_block1(x, x3)  # x3, etc. are dummy variables for up_blocks; no concatenation currently happening
-        x = self.up_block2(x, x2)
-        x = self.up_block3(x, x1)
-        # x = self.up_block1(x, x4)  # x4, etc. are dummy variables for up_blocks; no concatenation currently happening
-        # x = self.up_block2(x, x3)
-        # x = self.up_block3(x, x2)
-        # x = self.up_block4(x, x1)
-        return self.out_conv(x)  # Includes sigmoidal output layer to ensure 0-1
-        # logits = self.out_conv(x)
-        # return torch.sigmoid(logits)
-
-        # Get rid of skip connections
-        # x = self.up1(x5, x4)
-        # x = self.up2(x, x3)
-        # x = self.up3(x, x2)
-        # x = self.up4(x, x1)
+        x = self.double_conv_block(x)
+        x = self.down_blocks(x)
+        x = self.up_blocks(x)
+        return self.out_conv(x)
 
     @staticmethod
     def init_weights(m):
@@ -84,11 +68,14 @@ class AutoEncoder_ResEncoder(nn.Module):
         self.trainable = trainable
 
         # [256, 128, 64, 32]
-        # The first number is the output from the down blocks, and should be doubled if concatenation for skip connections is happening
         up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
                      for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
+        up_blocks[-1] = UpBlock(n_decoder_filters[-2], n_decoder_filters[-1], trainable=trainable, is_batch_norm=False)
         self.up_blocks = nn.Sequential(*up_blocks)
-        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh')
+
+        # Uses tanh output layer to ensure -1 to 1
+        # Potential parameters are kernel_size=3 and padding=1
+        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh', is_batch_norm=False)
 
     def forward(self, x):
         x = self.resnet_block(x)
@@ -101,44 +88,3 @@ class AutoEncoder_ResEncoder(nn.Module):
             torch.nn.init.xavier_normal_(m.weight)
             if m.bias is not None:
                 m.bias.data.fill_(0.01)
-
-
-# Get features out of AutoEncoder latent space
-class AutoEncoderTest(nn.Module):
-
-    def __init__(self, n_channels, n_encoder_filters, n_decoder_filters, trainable=False):
-        super().__init__()
-        self.n_channels = n_channels
-        self.n_encoder_filters = n_encoder_filters
-        self.n_decoder_filters = n_decoder_filters
-        self.trainable = trainable
-
-        self.double_conv_block = DoubleConvBlock(n_channels, n_encoder_filters[0])
-
-        # [32, 64, 128, 256, 256]
-        down_blocks = [DownBlock(in_channels, out_channels)
-                       for in_channels, out_channels in zip(n_encoder_filters, n_encoder_filters[1:])]
-        self.down_block1, self.down_block2, self.down_block3, self.down_block4 = down_blocks[:]
-
-        # [256, 128, 64, 32, 32]
-        # The first number is the output from the down blocks, and should be doubled if concatenation for skip connections is happening
-        up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
-                     for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
-        self.up_block1, self.up_block2, self.up_block3, self.up_block4 = up_blocks[:]
-        self.out_conv = nn.Conv2d(n_decoder_filters[-1], n_channels, kernel_size=1)
-
-    def forward(self, x):
-        x1 = self.double_conv_block(x)
-        x2 = self.down_block1(x1)
-        x3 = self.down_block2(x2)
-        x4 = self.down_block3(x3)
-        features = self.down_block4(x4)
-
-        x = self.up_block1(features)
-        x = self.up_block2(x)
-        x = self.up_block3(x)
-        x = self.up_block4(x)
-        logits = self.out_conv(x)
-        reconstruct = torch.sigmoid(logits)  # Sigmoidal output layer to ensure 0-1
-
-        return features, reconstruct
