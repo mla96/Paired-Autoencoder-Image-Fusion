@@ -11,14 +11,12 @@ Contents
     tensors_to_images() : converts tensors to RGB PIL images and saves them
 """
 
-
-import torch.nn as nn
-
 from matplotlib import pyplot as plt
 plt.switch_backend('agg')
 import PIL.Image
 
 from loss_utils import *
+from tensorboard_utils import add_image_tensorboard
 
 
 # Early stopping
@@ -48,31 +46,30 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
 
     for epoch in range(epoch_num):
         running_loss = 0
-        # file_labelweight is a tuple containing the file basename and a weight label
+        # file_labelweight is a tuple containing the file_path and a weight label
         for i, (image, target, file_labelweight) in enumerate(trainloader):
+            optimizer.zero_grad()
             image, target = image.to(device), target.to(device)
             output = model(image)
-            loss = criterion(output, target)
-            step = i + epoch * len(trainloader)
 
-            if criterion == nn.MSELoss().to(device) and isinstance(file_labelweight, list) and sample_weights:
+            # If file_labelweight is a tuple and sample_weights is defined, then use a weighted_mse_loss
+            if sample_weights:
                 _, label = file_labelweight
                 sample_weight = torch.tensor([sample_weights[l] for l in label]).cuda()
                 loss = weighted_mse_loss(output, target, sample_weight)
+            else:
+                loss = criterion(output, target)
+
             loss.backward()
             optimizer.step()
 
+            step = i + epoch * len(trainloader)
             running_loss += loss.item()
             if i % 100 == 0:
                 print(i)
             if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
-                randint = np.random.randint(0, image.size()[0])
-                input_im = image.detach().cpu().numpy()[randint]
-                output_im = output.detach().cpu().numpy()[randint]
-                input_im, output_im = np.transpose(input_im, (1, 2, 0)), np.transpose(output_im, (1, 2, 0))
-
-                plot_tensors_tensorboard(input_im, output_im, step, epoch, running_loss / len(trainloader),
-                                         writer, output_path)
+                add_image_tensorboard(model, image, step=step, epoch=epoch, avg_loss=running_loss / len(trainloader),
+                                      writer=writer, output_path=output_path)
 
             if i % len(trainloader) == len(trainloader) - 1:
                 print('[Epoch: {}, i: {}] loss: {:.5f}'.format(epoch + 1, i + 1, running_loss / len(trainloader)))
@@ -136,4 +133,3 @@ def tensors_to_images(tensors, filenames, valid_data_path):
     #         file_name = filenames[i][0].split('.')
     #         image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
     #                    quality=quality_val)
-
