@@ -11,7 +11,7 @@ import albumentations as A
 from PIL import ImageFile
 
 from autoencoder import *
-from autoencoder_datasets import ImbalancedDataset, UnlabeledDataset
+from autoencoder_datasets import UnlabeledDataset
 from autoencoder_traintest_functions import *
 
 import torch.multiprocessing
@@ -25,17 +25,19 @@ data_paths = [os.path.join(transfer_data_path, "train"),
 data_paths_AMD = [os.path.join(transfer_data_path, "train_AMD")]
 valid_data_path = [os.path.join(transfer_data_path, "validation")]  # Contains small data set for validation
 save_model_path = "../../FLIO-Thesis-Project/AutoEncoder/AutoEncoder_Results"
-model_base_name = "autoencoder_tanh_norm_trainable"
+model_base_name = "fixednew_autoencoder_32646416_jupyterparams_tanh_trainable"
 
 # Training parameters
-model_architecture = "Res34"  # Options: noRes, Res34
-epoch_num = 500
+model_architecture = "noRes"  # Options: noRes, Res34
+epoch_num = 512
 train_data_type = "AMDonly"  # Options: None, AMDonly
 loss_type = "L1"  # Options: L1, MSE
-batch_size = 20
+batch_size = 32
 num_workers = 12
 plot_steps = 500  # Number of steps between getting random input/output to plot training progress in TensorBoard
 stop_condition = 10000  # Number of steps without improvement for early stopping
+w = 0.995  # weight of rare event
+sample_weights = None  # Options: None, [1 - w, w]
 
 overwrite = True  # Overwrite existing model to train again
 
@@ -45,7 +47,7 @@ model_name_pt1 = model_base_name + "_" + model_architecture + "_" + str(epoch_nu
 if train_data_type:
     model_name = model_name_pt1 + train_data_type + "_" + loss_type + "_batch" + str(batch_size) + "_workers" + str(num_workers)
 else:
-    model_name = model_name_pt1 + loss_type +  "batch" + str(batch_size) + "_workers" + str(num_workers)
+    model_name = model_name_pt1 + loss_type + "batch" + str(batch_size) + "_workers" + str(num_workers)
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -66,8 +68,6 @@ if not os.path.exists(valid_output_path):
     os.mkdir(valid_output_path)
 
 n_channels = 3
-w = 0.995  # weight of rare event
-sample_weights = [1 - w, w]
 transformation_pipeline = A.Compose(
     [A.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
 )
@@ -75,12 +75,13 @@ augmentation_pipeline = A.Compose(
     [A.HorizontalFlip(p=0.5), A.VerticalFlip(p=0.5),
      A.RandomRotate90(p=0.5),
      A.RandomCrop(128, 128, p=1.0)]
+     # FancyPCA(p=0.5)]
      # A.HueSaturationValue(p=0.3),  # Use color augmentations? Some results seem to get worse
      # A.RandomBrightnessContrast(p=0.3)]
 )
 
 # Load training set
-unlabeled_dataset = ImbalancedDataset(data_paths_AMD, transformations=transformation_pipeline, augmentations=augmentation_pipeline)
+unlabeled_dataset = UnlabeledDataset(data_paths_AMD, transformations=transformation_pipeline, augmentations=augmentation_pipeline)
 dataloader = DataLoader(unlabeled_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
 
 
@@ -92,8 +93,8 @@ if model_architecture == "Res34":
     model.apply(AutoEncoder_ResEncoder.init_weights)  # initialize model parameters with normal distribution
 else:  # noRes
     model = AutoEncoder(n_channels=n_channels,
-                        n_encoder_filters=[32, 64, 128, 256],
-                        n_decoder_filters=[128, 64, 32],
+                        n_encoder_filters=[32, 64, 64, 16],
+                        n_decoder_filters=[64, 64, 32],
                         trainable=True).to(device)
     model.apply(AutoEncoder.init_weights)  # Initialize weights
 
@@ -108,16 +109,16 @@ if loss_type == "MSE":
     criterion = nn.MSELoss().to(device)
 else:  # L1
     criterion = nn.L1Loss().to(device)
-optimizer = optim.Adam(model.parameters(), lr=0.0001)
+optimizer = optim.Adam(model.parameters(), lr=0.0003)
 # optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.8)
 
-# Training
+# TRAINING
 save_model_path_filename = os.path.join(model_output_path, model_name + '.pth')
 if not os.path.isfile(save_model_path_filename) or overwrite:  # If training a new model
     # TensorBoard
     tensorboard_writer = SummaryWriter(model_output_path)
-    dummy = torch.zeros([20, 3, 256, 256], dtype=torch.float)
+    dummy = torch.zeros([20, 3, 128, 128], dtype=torch.float)
     tensorboard_writer.add_graph(model, input_to_model=(dummy.to(device), ), verbose=True)
     # tensorboard_writer.add_graph(model, input_to_model=(image,), verbose=True)
 
@@ -131,9 +132,9 @@ if not os.path.isfile(save_model_path_filename) or overwrite:  # If training a n
 else:  # Load old model with the given name
     model.load_state_dict(torch.load(save_model_path_filename))
 
-# Testing
-validation_dataset = ImbalancedDataset(valid_data_path, transformations=transformation_pipeline)
-valid_dataloader = DataLoader(validation_dataset, batch_size=1, shuffle=True, num_workers=12)
+# TESTING
+validation_dataset = UnlabeledDataset(valid_data_path, transformations=transformation_pipeline)
+valid_dataloader = DataLoader(validation_dataset, batch_size=1, shuffle=False, num_workers=num_workers)
 
 valid_outputs, valid_losses, valid_filenames = test(model, valid_dataloader, criterion, device)
 print("Validation outputs")
