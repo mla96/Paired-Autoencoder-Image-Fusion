@@ -19,7 +19,7 @@ import torch.nn.functional as F
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, activation='relu'):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, activation='relu', is_batch_norm=True):
         super().__init__()
         activations = nn.ModuleDict({
             'relu': nn.ReLU(),
@@ -27,10 +27,14 @@ class ConvBlock(nn.Module):
             'tanh': nn.Tanh()
         })
 
+        # Append BatchNorm2d for most (all) blocks besides out_conv
+        post_conv = []
+        if is_batch_norm:
+            post_conv.append(nn.BatchNorm2d(out_channels))
+        post_conv.append(activations[activation])
         self.conv_block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding),
-            nn.BatchNorm2d(out_channels),
-            activations[activation]
+            *post_conv
         )
 
     def forward(self, x):
@@ -40,11 +44,11 @@ class ConvBlock(nn.Module):
 class DoubleConvBlock(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
 
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, is_batch_norm=True):
         super().__init__()
         self.double_conv_block = nn.Sequential(
-            ConvBlock(in_channels, out_channels, kernel_size=kernel_size, padding=padding),
-            ConvBlock(out_channels, out_channels, kernel_size=kernel_size, padding=padding)
+            ConvBlock(in_channels, out_channels, kernel_size=kernel_size, padding=padding, is_batch_norm=is_batch_norm),
+            ConvBlock(out_channels, out_channels, kernel_size=kernel_size, padding=padding, is_batch_norm=is_batch_norm)
         )
 
     def forward(self, x):
@@ -64,32 +68,19 @@ class DownBlock(nn.Module):
         return self.down_block(x)
 
 
-# class DownResBlock(nn.Module):
-#     # For concatenating tensors, enabling skip connections within encoder (Down)
-#     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
-#         super().__init__()
-#         self.down_block = nn.Sequential(
-#             nn.MaxPool2d(2),
-#             DoubleConvBlock(in_channels, out_channels, kernel_size=kernel_size, padding=padding)
-#         )
-#
-#     def forward(self, x):
-#         return self.down_block(x)
-
-
 class UpBlock(nn.Module):
     # trainable=False for bilinear upsampling default
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, trainable=False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, trainable=False, is_batch_norm=True):
         super().__init__()
 
         if trainable:
             self.up = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2)
         else:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            self.up = nn.Upsample(scale_factor=2, mode='nearest')
 
         self.up_conv_block = nn.Sequential(
             self.up,
-            DoubleConvBlock(in_channels, out_channels, kernel_size=kernel_size, padding=padding)
+            DoubleConvBlock(in_channels, out_channels, kernel_size=kernel_size, padding=padding, is_batch_norm=is_batch_norm)
         )
 
     def forward(self, x, dummy=None):
@@ -120,12 +111,3 @@ class UpResBlock(nn.Module):
 
         x = torch.cat([x2, x1], dim=1)
         return self.double_conv_block(x)
-
-
-# class OutConv(nn.Module):
-#     def __init__(self, in_channels, out_channels):
-#         super(OutConv, self).__init__()
-#         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-#
-#     def forward(self, x):
-#         return self.conv(x)
