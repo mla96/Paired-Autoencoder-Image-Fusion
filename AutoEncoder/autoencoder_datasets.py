@@ -11,81 +11,45 @@ Contents
 
 
 import os
+
 import PIL.Image
 import hdf5storage
 import numpy as np
 import skimage.io
+import skimage.transform
 import torch
 from torch.utils.data.dataset import Dataset
 
 
+# UnlabeledDataset takes care of imbalanced sample weights by defining labels
+# Labels for AMD (or mixed sets) and non-AMD data for sample weighting during transfer learning
 class UnlabeledDataset(Dataset):
 
-    def __init__(self, data_paths, valid_file_types=('jpg', 'jpeg', 'tiff'), augmentations=None):
-        self.data_paths = data_paths
-        self.valid_file_types = valid_file_types
-        self.file_paths = []
-        for data_path in data_paths:
-            self.file_paths.extend(self.get_file_paths(data_path))
-        self.augmentations = augmentations
-        # self.size = self.get_size()
-
-    def __getitem__(self, index):
-        file_path = self.file_paths[index]
-        image = skimage.io.imread(file_path)
-        if self.augmentations:
-            augmented = self.augmentations(image=image)
-            image = augmented['image']
-        image = np.transpose(image, (2, 1, 0))
-        image = torch.from_numpy(image).float()
-        target = image
-        return image, target, os.path.basename(file_path)
-
-    def __len__(self):
-        return len(self.file_paths)
-
-    # def get_size(self):
-    #     file_path = self.file_paths[0]
-    #     image = PIL.Image.open(file_path)
-    #     tensor_image = self.transformations(np.array(image))
-    #     return tensor_image.size()
-    #
-    # def __len__(self):
-    #     return len(self.data)
-
-    def get_file_paths(self, data_path):
-        files = os.listdir(data_path)  # Extracts the file names technically
-        return [os.path.join(data_path, file) for file in files if '.jpg' in file or '.jpeg' in file]
-
-
-# Labels for AMD (or mixed sets) and non-AMD data for sample weighting during transfer learning
-class ImbalancedDataset(Dataset):
-
-    def __init__(self, data_paths_1, data_paths_2=[], sample_weights=[0.005, 0.995],
-                 transformations=None, augmentations=None):
+    def __init__(self, data_paths_1, data_paths_2=None, transformations=None, augmentations=None):
         self.data_paths_1 = data_paths_1  # Label 1 samples
-        self.data_paths_2 = data_paths_2  # Label 2 samples
-        self.sample_weights = sample_weights  # Weighting each sample for contributions to the loss
-        self.labels = [0, 1]  # In case I want different labels
+        self.labels = (0, 1)  # Keep track of labels
         self.file_paths = []
         for data_path in self.data_paths_1:
             self.file_paths.extend(self.get_file_paths(data_path, self.labels[0]))
-        for data_path in self.data_paths_2:
-            self.file_paths.extend(self.get_file_paths(data_path, self.labels[1]))
+
+        # Add to file_paths if data_paths_2 variable exists
+        if data_paths_2:
+            self.data_paths_2 = data_paths_2  # Label 2 samples
+            for data_path in self.data_paths_2:
+                self.file_paths.extend(self.get_file_paths(data_path, self.labels[1]))
 
         self.transformations = transformations
         self.augmentations = augmentations
-        # self.size = self.get_size()
 
     def __getitem__(self, index):
         file_path, label = self.file_paths[index]
         image = skimage.io.imread(file_path)
-        image = self.transformations(image=image).get('image')  # Normalizes to [-1, 1]
         if self.augmentations:
             image = self.augmentations(image=image).get('image')
+        image = self.transformations(image=image).get('image')  # Normalizes to [-1, 1]
         image = np.transpose(image, (2, 0, 1))
         image = torch.from_numpy(image).float()
-        target = image
+        target = image.clone()
         return image, target, (os.path.basename(file_path), label)
 
     def __len__(self):
@@ -93,12 +57,13 @@ class ImbalancedDataset(Dataset):
 
     def get_file_paths(self, data_path, label):
         files = os.listdir(data_path)  # Extracts the file names technically
-        return [(os.path.join(data_path, file), label) for file in files if '.jpg' in file or '.jpeg' in file]
+        return [(os.path.join(data_path, file), label) for file in files
+                if '.jpg' in file or '.jpeg' in file]
 
 
 class PairedUnlabeledDataset(UnlabeledDataset):
     # data_path leads to subject directories that contain both RGB fundus images and FLIO parameter maps
-    def __init__(self, data_path, subdirectories, filetype, spectral_channel, augmentations=None):
+    def __init__(self, data_path, subdirectories, filetype, spectral_channel, transformations=None, augmentations=None):
         # self.data_paths = [data_path] if data_path is not isinstance(data_path, list) else data_path
         self.data_path = data_path  # "/OakData/FLIO_Data/"
         self.subdirectories = subdirectories  # ["fundus_registered", "FLIO_parameters"]
@@ -131,6 +96,7 @@ class PairedUnlabeledDataset(UnlabeledDataset):
         # self.data, self.file_names = self.images_to_tensors(data_path, subdirectories)
         # self.data = [[[[1, 2], [3, 4]]], [[[2, 3], [4, 5]]]]
         self.size = 0
+        self.transformations = transformations
         self.augmentations = augmentations
 
 
@@ -139,6 +105,7 @@ class PairedUnlabeledDataset(UnlabeledDataset):
         #for image in raw_image:  # For the fundus image and FLIO map
 
         fundus_image = skimage.io.imread(image_files[0])
+        fundus_image = skimage.transform.resize(fundus_image, (512, 512))
         mat_image = hdf5storage.loadmat(image_files[1])
         mat_image = mat_image['result'][0][0]['results'][0][0]['pixel'][0][0]
         flio_image = np.dstack((mat_image['Amplitude1'], mat_image['Amplitude2'], mat_image['Amplitude3'],
@@ -148,9 +115,13 @@ class PairedUnlabeledDataset(UnlabeledDataset):
             # Return target properly
             augmented = self.augmentations(image=fundus_image, image2=flio_image)
             image, image2 = augmented['image'], augmented['image2']
+        image = self.transformations(image=image).get('image')  # Normalizes to [-1, 1]
+        image2[:, :, 0:3] = self.transformations(image=image2[:, :, 0:3]).get('image')
+        image2 = image2[:, :, 0:3]
+        # image2[:, :, 3:6] = self.transformations(image=image2[:, :, 3:6]).get('image')
         image, image2 = np.transpose(image, (2, 1, 0)), np.transpose(image2, (2, 1, 0))
         image, image2 = torch.from_numpy(image / 255).float(), torch.from_numpy(image2 / 255).float()
-        target, target2 = image, image2
+        target, target2 = image.clone(), image2.clone()
         return image, image2, target, target2, image_files
 
     def __len__(self):
