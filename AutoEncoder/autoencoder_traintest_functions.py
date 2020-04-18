@@ -16,7 +16,7 @@ plt.switch_backend('agg')
 import PIL.Image
 
 from loss_utils import *
-from tensorboard_utils import add_image_tensorboard
+from tensorboard_utils import add_image_tensorboard, denormalize
 
 
 # Early stopping
@@ -58,6 +58,8 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
                 sample_weight = torch.tensor([sample_weights[l] for l in label]).cuda()
                 loss = weighted_mse_loss(output, target, sample_weight)
             else:
+                if isinstance(criterion, SSIM_Loss) or isinstance(criterion, MS_SSIM_Loss):
+                    output, target = denormalize(output), denormalize(target)
                 loss = criterion(output, target)
 
             loss.backward()
@@ -99,7 +101,11 @@ def test(model, testloader, criterion, device):
             image, target = image.to(device), target.to(device)
             output = model(image)
             outputs.append(output)
+
+            if isinstance(criterion, SSIM_Loss) or isinstance(criterion, MS_SSIM_Loss):
+                output, target = denormalize(output), denormalize(target)
             losses.append(criterion(output, target))
+
             if isinstance(file_labelweight, list):
                 filenames.append(file_labelweight[0])  # appends file_name
             else:
@@ -113,9 +119,7 @@ def tensors_to_images(tensors, filenames, valid_data_path):
     for tensor, file_name in zip(tensors, filenames):
         volume = tensor[0]  # Batch size will always be 1
         volume = volume.cpu().numpy().transpose((1, 2, 0))
-        volume = volume * 0.5 + 0.5  # Denormalizes to [0, 1]
-        volume *= 255  # Scales to [0, 255]
-        print(volume)
+        volume = denormalize_and_rescale(volume)  # Denormalizes to [0, 1] and scales to [0, 255]
         image = PIL.Image.fromarray(np.uint8(volume))
         file_name = file_name[0].split('.')
         image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
