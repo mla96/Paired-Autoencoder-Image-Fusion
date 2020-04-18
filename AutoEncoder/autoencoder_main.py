@@ -8,31 +8,36 @@ This file includes calling the AutoEncoder with hyperparameters, training, and v
 
 
 import albumentations as A
+from fastai.vision import DataLoader
+import os
 from PIL import ImageFile
 
-from autoencoder import *
-from autoencoder_datasets import UnlabeledDataset
-from autoencoder_traintest_functions import *
-
 import torch.multiprocessing
+import torch.nn as nn
+import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
+
+from autoencoder import AutoEncoder, AutoEncoder_ResEncoder
+from autoencoder_datasets import UnlabeledDataset
+from autoencoder_traintest_functions import train, test, tensors_to_images
+from loss_utils import SSIM_Loss, MS_SSIM_Loss
 
 
 # Paths to source data, validation data, and output saves
 transfer_data_path = "../../../../OakData/Transfer_learning_datasets"
 data_paths = [os.path.join(transfer_data_path, "train"),
-              os.path.join(transfer_data_path, "KaggleDR_crop")]
+              os.path.join(transfer_data_path, "KaggleDR_crop512")]
 data_paths_AMD = [os.path.join(transfer_data_path, "train_AMD")]
 valid_data_path = [os.path.join(transfer_data_path, "validation")]  # Contains small data set for validation
 save_model_path = "../../FLIO-Thesis-Project/AutoEncoder/AutoEncoder_Results"
-model_base_name = "fixednew_autoencoder_32646416_jupyterparams_tanh_trainable"
+model_base_name = "fixednew_autoencoder_32-64-64-16-64-64-32_jupyterparams_tanh_31_lr005"
 
 # Training parameters
 model_architecture = "noRes"  # Options: noRes, Res34
 epoch_num = 512
 train_data_type = "AMDonly"  # Options: None, AMDonly
-loss_type = "L1"  # Options: L1, MSE
-batch_size = 32
+loss_type = "MS-SSIM"  # Options: L1, MSE, SSIM, MS-SSIM
+batch_size = 16
 num_workers = 12
 plot_steps = 500  # Number of steps between getting random input/output to plot training progress in TensorBoard
 stop_condition = 10000  # Number of steps without improvement for early stopping
@@ -71,14 +76,24 @@ n_channels = 3
 transformation_pipeline = A.Compose(
     [A.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
 )
-augmentation_pipeline = A.Compose(
-    [A.HorizontalFlip(p=0.5), A.VerticalFlip(p=0.5),
-     A.RandomRotate90(p=0.5),
-     A.RandomCrop(128, 128, p=1.0)]
-     # FancyPCA(p=0.5)]
-     # A.HueSaturationValue(p=0.3),  # Use color augmentations? Some results seem to get worse
-     # A.RandomBrightnessContrast(p=0.3)]
-)
+
+# Isometric augmentatations
+augmentations = [A.HorizontalFlip(p=0.5),
+                 A.VerticalFlip(p=0.5),
+                 A.RandomRotate90(p=0.5)]
+# MS-SSIM requires images larger than 160 x 160 to calculate loss
+if loss_type == "MS-SSIM":
+    augmentations.append(A.RandomCrop(256, 256, p=1.0))
+else:
+    augmentations.append(A.RandomCrop(128, 128, p=1.0))
+# Color augmentations must be done after cropping
+# augmentations.extend([
+#     A.HueSaturationValue(p=0.3),  # Use color augmentations? Some results seem to get worse
+#     A.RandomBrightnessContrast(p=0.3)
+#     # FancyPCA(p=0.5)
+# ])
+augmentation_pipeline = A.Compose(augmentations)
+
 
 # Load training set
 unlabeled_dataset = UnlabeledDataset(data_paths_AMD, transformations=transformation_pipeline, augmentations=augmentation_pipeline)
@@ -95,7 +110,7 @@ else:  # noRes
     model = AutoEncoder(n_channels=n_channels,
                         n_encoder_filters=[32, 64, 64, 16],
                         n_decoder_filters=[64, 64, 32],
-                        trainable=True).to(device)
+                        trainable=False).to(device)
     model.apply(AutoEncoder.init_weights)  # Initialize weights
 
 
@@ -105,11 +120,12 @@ print("Now using", torch.cuda.device_count(), "GPU(s) \n")
 model.to(device)
 
 # Select loss
-if loss_type == "MSE":
-    criterion = nn.MSELoss().to(device)
-else:  # L1
-    criterion = nn.L1Loss().to(device)
-optimizer = optim.Adam(model.parameters(), lr=0.0003)
+loss_types = {'MSE': nn.MSELoss(),
+              'L1': nn.L1Loss(),
+              'SSIM': SSIM_Loss(data_range=1.0),
+              'MS-SSIM': MS_SSIM_Loss(data_range=1.0, nonnegative_ssim=True)}
+criterion = loss_types.get(loss_type).to(device)
+optimizer = optim.Adam(model.parameters(), lr=0.005)
 # optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.8)
 
