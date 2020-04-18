@@ -59,6 +59,9 @@ def plot_tensors_tensorboard(input, output, step, epoch, loss, writer, output_pa
     print('\n Figure added \n')
 
 
+def denormalize(image):
+    return 0.5 * image + 0.5
+
+
 def denormalize_and_rescale(image):
-    image = 0.5 * image + 0.5  # denormalize
-    return 255 * image  # rescale
+    return 255 * denormalize(image)
