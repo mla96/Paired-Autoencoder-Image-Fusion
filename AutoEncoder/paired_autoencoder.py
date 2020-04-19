@@ -14,42 +14,6 @@ from torchvision import models
 from autoencoder_blocks import *
 
 
-
-class PairedAutoEncoder(nn.Module):
-
-    def __init__(self, n_channels, n_decoder_filters, trainable=False):
-        super().__init__()
-
-        resnet = models.resnet34()
-        resnet_layers = list(resnet.children())
-        self.resnet_block = nn.Sequential(*resnet_layers[:7])  # Stops right before linear layer
-
-        self.n_channels = n_channels
-        self.n_decoder_filters = n_decoder_filters.insert(0, 256)  # Insert 256 for resnet34, 1024 for resnet50
-        self.trainable = trainable
-
-        # [256, 128, 64, 32, 32]
-        # The first number is the output from the down blocks, and should be doubled if concatenation for skip connections is happening
-        up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
-                     for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
-        self.up_blocks = nn.Sequential(*up_blocks)
-        self.out_conv = nn.Conv2d(n_decoder_filters[-1], n_channels, kernel_size=1)
-
-
-    def forward(self, x):
-        features = self.resnet_block(x)
-        x = self.up_blocks(features)
-        logits = self.out_conv(x)
-        return features, torch.sigmoid(logits)  # Sigmoidal output layer to ensure 0-1
-
-    @staticmethod
-    def init_weights(m):
-        if isinstance(m, nn.Conv2d):
-            torch.nn.init.xavier_normal_(m.weight)
-            if m.bias is not None:
-                m.bias.data.fill_(0.01)
-
-
 class AutoEncoder(nn.Module):
 
     def __init__(self, n_channels, n_encoder_filters, n_decoder_filters, trainable=False):
@@ -61,37 +25,26 @@ class AutoEncoder(nn.Module):
 
         self.double_conv_block = DoubleConvBlock(n_channels, n_encoder_filters[0])
 
-
-        # [32, 64, 128, 256, 256]
+        # [32, 64, 128, 256]
         down_blocks = [DownBlock(in_channels, out_channels)
                        for in_channels, out_channels in zip(n_encoder_filters, n_encoder_filters[1:])]
-        self.down_block1, self.down_block2, self.down_block3, self.down_block4 = down_blocks[:]
+        self.down_blocks = nn.Sequential(*down_blocks)
 
-        # [256, 128, 64, 32, 32]
-        # The first number is the output from the down blocks, and should be doubled if concatenation for skip connections is happening
+        # [128, 64, 32]
         up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
                      for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
-        self.up_block1, self.up_block2, self.up_block3, self.up_block4 = up_blocks[:]
-        self.out_conv = nn.Conv2d(n_decoder_filters[-1], n_channels, kernel_size=1)
+        up_blocks[-1] = UpBlock(n_decoder_filters[-2], n_decoder_filters[-1], trainable=trainable, is_batch_norm=False)
+        self.up_blocks = nn.Sequential(*up_blocks)
+
+        # Uses tanh output layer to ensure -1 to 1
+        # Potential parameters are kernel_size=3 and padding=1
+        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=3, padding=1, activation='tanh')
 
     def forward(self, x):
-        x1 = self.double_conv_block(x)
-        x2 = self.down_block1(x1)
-        x3 = self.down_block2(x2)
-        x4 = self.down_block3(x3)
-        x = self.down_block4(x4)
-        x = self.up_block1(x, x4)  # x4, etc. are dummy variables for up_blocks; no concatenation currently happening
-        x = self.up_block2(x, x3)
-        x = self.up_block3(x, x2)
-        x = self.up_block4(x, x1)
-        logits = self.out_conv(x)
-        return torch.sigmoid(logits)  # Sigmoidal output layer to ensure 0-1
-
-        # Get rid of skip connections
-        # x = self.up1(x5, x4)
-        # x = self.up2(x, x3)
-        # x = self.up3(x, x2)
-        # x = self.up4(x, x1)
+        x = self.double_conv_block(x)
+        features = self.down_blocks(x)
+        x = self.up_blocks(features)
+        return features, self.out_conv(x)
 
     @staticmethod
     def init_weights(m):
@@ -100,31 +53,66 @@ class AutoEncoder(nn.Module):
             m.bias.data.fill_(0.01)
 
 
-
-class AutoEncoder_ResEncoder(nn.Module):
+# RGB fundus image dimensions: 1612, 1612, 3 resized to 512, 512, 3 cropped to 128, 128, 3
+# Must be identical to model architecture for transfer learning
+class AutoEncoder_ResEncoder_Fundus(nn.Module):
     def __init__(self, n_channels, n_decoder_filters, trainable=False):
         super().__init__()
 
         resnet = models.resnet34()
         resnet_layers = list(resnet.children())
-        self.resnet_block = nn.Sequential(*resnet_layers[:7])  # Stops right before linear layer
+        self.resnet_block = nn.Sequential(*resnet_layers[:8])  # Stops right before linear layer
 
         self.n_channels = n_channels
-        self.n_decoder_filters = n_decoder_filters.insert(0, 256)  # Insert 256 for resnet34, 1024 for resnet50
+        self.n_decoder_filters = n_decoder_filters.insert(0, 512)  # Insert here the number of filters the resnet ends on
         self.trainable = trainable
 
-        # [256, 128, 64, 32, 32]
+        # [256, 128, 64, 32]
         # The first number is the output from the down blocks, and should be doubled if concatenation for skip connections is happening
         up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
                      for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
         self.up_blocks = nn.Sequential(*up_blocks)
-        self.out_conv = nn.Conv2d(n_decoder_filters[-1], n_channels, kernel_size=1)
+        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh')
 
     def forward(self, x):
-        x = self.resnet_block(x)
-        x = self.up_blocks(x)
-        logits = self.out_conv(x)
-        return torch.sigmoid(logits)  # Sigmoidal output layer to ensure 0-1
+        features = self.resnet_block(x)  # Dimensions:
+        x = self.up_blocks(features)
+        return features, self.out_conv(x)  # Tanh activation layer
+
+    # Replace witih load state dict
+    @staticmethod
+    def init_weights(m):
+        if isinstance(m, nn.Conv2d):
+            torch.nn.init.xavier_normal_(m.weight)
+            if m.bias is not None:
+                m.bias.data.fill_(0.01)
+
+
+class AutoEncoder_ResEncoder_FLIO(nn.Module):  # FLIO parameter dimensions: 256, 256, 6 cropped to 128, 128, 3 (or 6?)
+    def __init__(self, n_channels, n_decoder_filters, trainable=False):
+        super().__init__()
+
+        resnet = models.resnet34()
+        resnet_layers = list(resnet.children())
+        self.conv2d = nn.Conv2d(n_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.resnet_block = nn.Sequential(*resnet_layers[1:8])  # Stops right before linear layer
+
+        self.n_channels = n_channels
+        self.n_decoder_filters = n_decoder_filters.insert(0, 512)  # Insert here the number of filters the resnet ends on
+        self.trainable = trainable
+
+        # [256, 128, 64, 32]
+        # The first number is the output from the down blocks, and should be doubled if concatenation for skip connections is happening
+        up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
+                     for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
+        self.up_blocks = nn.Sequential(*up_blocks)
+        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh')
+
+    def forward(self, x):
+        x = self.conv2d(x)
+        features = self.resnet_block(x)  # Dimensions:
+        x = self.up_blocks(features)
+        return features, self.out_conv(x)  # Tanh activation layer
 
     @staticmethod
     def init_weights(m):
@@ -132,3 +120,5 @@ class AutoEncoder_ResEncoder(nn.Module):
             torch.nn.init.xavier_normal_(m.weight)
             if m.bias is not None:
                 m.bias.data.fill_(0.01)
+
+
