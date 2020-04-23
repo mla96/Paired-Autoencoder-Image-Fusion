@@ -1,20 +1,10 @@
-from fastai.imports import *
-from fastai.vision import *
-from fastai.data_block import *
-from fastai.basic_train import *
-import torch
-import torch.nn as nn
-
-import pandas as pd
-import os
-
-import torch.nn.functional as F
 from torchvision import models
 
-from autoencoder_blocks import *
+from autoencoder_blocks import ConvBlock, DoubleConvBlock, DownBlock, UpBlock
+import torch.nn as nn
 
 
-class AutoEncoder(nn.Module):
+class AutoEncoder_fundus(nn.Module):
 
     def __init__(self, n_channels, n_encoder_filters, n_decoder_filters, trainable=False):
         super().__init__()
@@ -37,19 +27,60 @@ class AutoEncoder(nn.Module):
         self.up_blocks = nn.Sequential(*up_blocks)
 
         # Uses tanh output layer to ensure -1 to 1
-        # Potential parameters are kernel_size=3 and padding=1
-        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=3, padding=1, activation='tanh')
+        # Potential parameters are kernel_size=1 and padding=0 OR kernel_size=3 and padding=1
+        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=3, padding=1, activation='tanh', is_batch_norm=False)
 
     def forward(self, x):
         x = self.double_conv_block(x)
-        features = self.down_blocks(x)
-        x = self.up_blocks(features)
-        return features, self.out_conv(x)
+        latent_features = self.down_blocks(x)
+        x = self.up_blocks(latent_features)
+        return latent_features, self.out_conv(x)
 
     @staticmethod
     def init_weights(m):
         if isinstance(m, nn.Conv2d):
-            torch.nn.init.xavier_normal_(m.weight)
+            nn.init.xavier_normal_(m.weight)
+            m.bias.data.fill_(0.01)
+
+
+class AutoEncoder_FLIO(nn.Module):
+
+    def __init__(self, n_channels, n_encoder_filters, n_decoder_filters, trainable=False):
+        super().__init__()
+        self.n_channels = n_channels
+        self.n_encoder_filters = n_encoder_filters
+        self.n_decoder_filters = n_decoder_filters.insert(0, n_encoder_filters[-1])
+        self.trainable = trainable
+
+        self.instance_norm = nn.InstanceNorm2d(n_channels)
+        self.double_conv_block = DoubleConvBlock(n_channels, n_encoder_filters[0])
+
+        # [32, 64, 128, 256]
+        down_blocks = [DownBlock(in_channels, out_channels)
+                       for in_channels, out_channels in zip(n_encoder_filters, n_encoder_filters[1:])]
+        self.down_blocks = nn.Sequential(*down_blocks)
+
+        # [128, 64, 32]
+        up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
+                     for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
+        up_blocks[-1] = UpBlock(n_decoder_filters[-2], n_decoder_filters[-1], trainable=trainable, is_batch_norm=False)
+        self.up_blocks = nn.Sequential(*up_blocks)
+
+        # Uses tanh output layer to ensure -1 to 1
+        # Potential parameters are kernel_size=1 and padding=0 OR kernel_size=3 and padding=1
+        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=3, padding=1, activation='tanh')
+
+    def forward(self, x):
+        x = self.instance_norm(x)
+        x = self.double_conv_block(x)
+        latent_features = self.down_blocks(x)
+        x = self.up_blocks(latent_features)
+        return latent_features, self.out_conv(x)
+
+    @staticmethod
+    def init_weights(m):
+        if isinstance(m, nn.Conv2d):
+            nn.init.xavier_normal_(m.weight)
             m.bias.data.fill_(0.01)
 
 
@@ -83,7 +114,7 @@ class AutoEncoder_ResEncoder_Fundus(nn.Module):
     @staticmethod
     def init_weights(m):
         if isinstance(m, nn.Conv2d):
-            torch.nn.init.xavier_normal_(m.weight)
+            nn.init.xavier_normal_(m.weight)
             if m.bias is not None:
                 m.bias.data.fill_(0.01)
 
@@ -117,8 +148,6 @@ class AutoEncoder_ResEncoder_FLIO(nn.Module):  # FLIO parameter dimensions: 256,
     @staticmethod
     def init_weights(m):
         if isinstance(m, nn.Conv2d):
-            torch.nn.init.xavier_normal_(m.weight)
+            nn.init.xavier_normal_(m.weight)
             if m.bias is not None:
                 m.bias.data.fill_(0.01)
-
-
