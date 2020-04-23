@@ -11,30 +11,78 @@ Contents
 """
 
 
-from tensorboard_utils import *
+import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 from ssim import SSIM, MS_SSIM
 
 
-def weighted_l1_loss(output, target, sample_weight):
+def get_loss_type(type, channel=3):
+    loss_types = {'MSE': nn.MSELoss(),
+                  'L1': nn.L1Loss(),
+                  'SSIM': SSIM_Loss(data_range=1),
+                  'MS-SSIM': MS_SSIM_Loss(data_range=1, nonnegative_ssim=True, win_size=11, channel=channel,
+                                          K=(0.01, 0.03)),
+                  'MS-SSIM-L1': MS_SSIM_L1_Loss(l1_weight=0.1, data_range=1, nonnegative_ssim=True, win_size=11,
+                                                channel=channel, K=(0.01, 0.03))}
+    return loss_types.get(type)
+
+
+def weighted_loss(output, target, criterion, sample_weight):
     loss = 0
-    errors = np.abs(output - target)
-    for w, error in zip(sample_weight, errors):
-        loss += torch.mean(w * error)
+    for w, img1, img2 in zip(sample_weight, output, target):
+        img1, img2 = torch.unsqueeze(img1, dim=0), torch.unsqueeze(img2, dim=0)
+        loss += w * criterion(img1, img2)
     return loss
 
 
-def weighted_mse_loss(output, target, sample_weight):
-    loss = 0
-    errors = (output - target) ** 2
-    for w, error in zip(sample_weight, errors):
-        loss += torch.mean(w * error)
-    return loss
+# def weighted_l1_loss(output, target, sample_weight):
+#     loss = 0
+#     errors = np.abs(output - target)
+#     for w, error in zip(sample_weight, errors):
+#         loss += torch.mean(w * error)
+#     return loss
+#
+#
+# def weighted_mse_loss(output, target, sample_weight):
+#     loss = 0
+#     errors = (output - target) ** 2
+#     for w, error in zip(sample_weight, errors):
+#         loss += torch.mean(w * error)
+#     return loss
 
 
-def mutual_information_calc(joint, marginal, mine_net):
-    t = mine_net(joint)
-    et = torch.exp(mine_net(marginal))
+def cosine_similarity_loss(output, target):
+    # Resize into 1 dimensional array to get a single value
+    output = output.view(np.prod(output.size()))
+    target = target.view(np.prod(target.size()))
+    return F.cosine_similarity(output, target, dim=0)
+
+
+class SSIM_Loss(SSIM):
+    def forward(self, img1, img2):
+        return 1 - super(SSIM_Loss, self).forward(img1, img2)
+
+
+class MS_SSIM_Loss(MS_SSIM):
+    def forward(self, img1, img2):
+        return 1 - super(MS_SSIM_Loss, self).forward(img1, img2)
+
+
+class MS_SSIM_L1_Loss(MS_SSIM):
+    def __init__(self, l1_weight=0.1, **kwargs):
+        super(MS_SSIM_L1_Loss, self).__init__(**kwargs)
+        self.l1_weight = l1_weight
+
+    def forward(self, img1, img2):
+        ms_ssim_loss = 1 - super(MS_SSIM_L1_Loss, self).forward(img1, img2)
+        l1_loss = F.l1_loss(img1, img2)
+        return ms_ssim_loss + self.l1_weight * l1_loss
+
+
+def mutual_information_calc(t, et):
     mi_lb = torch.mean(t) - torch.log(torch.mean(et))
     return mi_lb, t, et
 
@@ -56,13 +104,3 @@ def mutual_information_loss(batch, mine_net, mine_net_optim, ma_et, ma_rate=0.01
     torch.autograd.backward(loss)
     mine_net_optim.step()
     return mi_lb, ma_et
-
-
-class SSIM_Loss(SSIM):
-    def forward(self, img1, img2):
-        return 1 - super(SSIM_Loss, self).forward(img1, img2)
-
-
-class MS_SSIM_Loss(MS_SSIM):
-    def forward(self, img1, img2):
-        return 1 - super(MS_SSIM_Loss, self).forward(img1, img2)
