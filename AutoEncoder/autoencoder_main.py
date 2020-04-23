@@ -20,7 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 from autoencoder import AutoEncoder, AutoEncoder_ResEncoder
 from autoencoder_datasets import UnlabeledDataset
 from autoencoder_traintest_functions import train, test, tensors_to_images
-from loss_utils import SSIM_Loss, MS_SSIM_Loss
+from loss_utils import get_loss_type, SSIM_Loss, MS_SSIM_Loss, MS_SSIM_L1_Loss
 
 
 # Paths to source data, validation data, and output saves
@@ -30,13 +30,13 @@ data_paths = [os.path.join(transfer_data_path, "train"),
 data_paths_AMD = [os.path.join(transfer_data_path, "train_AMD")]
 valid_data_path = [os.path.join(transfer_data_path, "validation")]  # Contains small data set for validation
 save_model_path = "../../FLIO-Thesis-Project/AutoEncoder/AutoEncoder_Results"
-model_base_name = "fixednew_autoencoder_32-64-64-16-64-64-32_jupyterparams_tanh_31_lr005"
+model_base_name = "fixednew_autoencoder_32-64-64-16-64-64-32_tanh_31_lr004_sched8_MSorig"
 
 # Training parameters
 model_architecture = "noRes"  # Options: noRes, Res34
 epoch_num = 512
 train_data_type = "AMDonly"  # Options: None, AMDonly
-loss_type = "MS-SSIM"  # Options: L1, MSE, SSIM, MS-SSIM
+loss_type = "MS-SSIM-L1"  # Options: L1, MSE, SSIM, MS-SSIM, MS-SSIM-L1
 batch_size = 16
 num_workers = 12
 plot_steps = 500  # Number of steps between getting random input/output to plot training progress in TensorBoard
@@ -52,7 +52,7 @@ model_name_pt1 = model_base_name + "_" + model_architecture + "_" + str(epoch_nu
 if train_data_type:
     model_name = model_name_pt1 + train_data_type + "_" + loss_type + "_batch" + str(batch_size) + "_workers" + str(num_workers)
 else:
-    model_name = model_name_pt1 + loss_type + "batch" + str(batch_size) + "_workers" + str(num_workers)
+    model_name = model_name_pt1 + loss_type + "_batch" + str(batch_size) + "_workers" + str(num_workers)
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -82,7 +82,7 @@ augmentations = [A.HorizontalFlip(p=0.5),
                  A.VerticalFlip(p=0.5),
                  A.RandomRotate90(p=0.5)]
 # MS-SSIM requires images larger than 160 x 160 to calculate loss
-if loss_type == "MS-SSIM":
+if loss_type == "MS-SSIM" or loss_type == "MS-SSIM-L1":
     augmentations.append(A.RandomCrop(256, 256, p=1.0))
 else:
     augmentations.append(A.RandomCrop(128, 128, p=1.0))
@@ -96,7 +96,8 @@ augmentation_pipeline = A.Compose(augmentations)
 
 
 # Load training set
-unlabeled_dataset = UnlabeledDataset(data_paths_AMD, transformations=transformation_pipeline, augmentations=augmentation_pipeline)
+unlabeled_dataset = UnlabeledDataset(data_paths_AMD,
+                                     transformations=transformation_pipeline, augmentations=augmentation_pipeline)
 dataloader = DataLoader(unlabeled_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
 
 
@@ -120,12 +121,8 @@ print("Now using", torch.cuda.device_count(), "GPU(s) \n")
 model.to(device)
 
 # Select loss
-loss_types = {'MSE': nn.MSELoss(),
-              'L1': nn.L1Loss(),
-              'SSIM': SSIM_Loss(data_range=1.0),
-              'MS-SSIM': MS_SSIM_Loss(data_range=1.0, nonnegative_ssim=True)}
-criterion = loss_types.get(loss_type).to(device)
-optimizer = optim.Adam(model.parameters(), lr=0.005)
+criterion = get_loss_type(loss_type).to(device)
+optimizer = optim.Adam(model.parameters(), lr=0.004)
 # optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.8)
 
