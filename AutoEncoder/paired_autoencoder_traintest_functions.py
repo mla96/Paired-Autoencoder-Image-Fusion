@@ -1,17 +1,36 @@
+#!/usr/bin/env python3
+"""
+This file contains functions for paired AutoEncoder model training and testing with PyTorch.
+
+Contents
+---
+    train() : trains model
+    test() : validates model
+    tensors_to_images() : converts tensors to RGB PIL images and saves them
+"""
+
+
 import numpy as np
-import torch.nn as nn
-from torchvision.transforms import transforms
+import os
+import PIL.Image
+import torch
 
-import hdf5storage
-import skimage.io
-from loss_utils import *
 from autoencoder_traintest_functions import StopCondition
-from matplotlib import pyplot as plt
-plt.switch_backend('agg')
+from loss_utils import cosine_similarity_loss, SSIM, MS_SSIM
+from tensorboard_utils import add_image_tensorboard, denormalize, denormalize_and_rescale
 
 
-def train(model, model2, trainloader, epoch_num, criterion, optimizer, scheduler, device, writer, output_path,
-          plot_steps=1000, stop_condition=4000):
+def apply_criterion(model, image, target, criterion, save_outputs=None):
+    latent_features, output = model(image)
+    if isinstance(save_outputs, list):
+        save_outputs.append(output)
+    if isinstance(criterion, SSIM) or isinstance(criterion, MS_SSIM):
+        output, target = denormalize(output), denormalize(target)
+    return latent_features, criterion(output, target)
+
+
+def train(model, model2, trainloader, epoch_num, criterion, criterion2, optimizer, scheduler, device, writer,
+          output_path, plot_steps=1000, stop_condition=4000):
     model.train()
     model2.train()
     if stop_condition:
@@ -20,36 +39,27 @@ def train(model, model2, trainloader, epoch_num, criterion, optimizer, scheduler
 
     for epoch in range(epoch_num):
         running_loss = 0
-        for i, (image, image2, target, target2, image_files) in enumerate(trainloader):
+        for i, (fundus_image, flio_image, fundus_target, flio_target, image_files) in enumerate(trainloader):
             optimizer.zero_grad()
-            image, target = image.to(device), target.to(device)
-            features, output = model(image)
-            if isinstance(criterion, SSIM_Loss) or isinstance(criterion, MS_SSIM_Loss):
-                output, target = denormalize(output), denormalize(target)
-            loss = criterion(output, target)
+            fundus_image, fundus_target = fundus_image.to(device), fundus_target.to(device)
+            fundus_latent_features, fundus_loss = apply_criterion(model, fundus_image, fundus_target, criterion)
 
-            image2, target2 = image2.to(device), target2.to(device)
-            features2, output2 = model2(image2)
-            loss2 = criterion(output2, target2)
+            flio_image, flio_target = flio_image.to(device), flio_target.to(device)
+            flio_latent_features, flio_loss = apply_criterion(model2, flio_image, flio_target, criterion2)
 
-            features = features.view(1, 8192)
-            features2 = features2.view(1, 8192)
-
-            latent_corr = nn.CosineSimilarity(dim=1)  # Resize into 1 dimensional array to get a single value?
-            cos_loss = latent_corr(features, features2)
-            total_loss = loss + loss2 + cos_loss
-
-            step = i + epoch * len(trainloader)
+            total_loss = fundus_loss + 3 * flio_loss + 3 * cosine_similarity_loss(fundus_latent_features, flio_latent_features)
 
             total_loss.backward()
             optimizer.step()
 
-            running_loss += total_loss.item()
-            if i % 100 == 0:
-                print(i)
+            step = i + epoch * len(trainloader)
+            batch_loss = total_loss.item()
+            running_loss += batch_loss
+            # if i % 100 == 0:
+            print(i)
             if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
-                add_image_tensorboard(model, image, step=step, epoch=epoch, avg_loss=running_loss / len(trainloader),
-                                      writer=writer, output_path=output_path)
+                add_image_tensorboard(model, fundus_image, step=step, epoch=epoch, has_feature_output=True,
+                                      loss=batch_loss, writer=writer, output_path=output_path)
 
             if i % len(trainloader) == len(trainloader) - 1:
                 print('[Epoch: {}, i: {}] loss: {:.5f}'.format(epoch + 1, i + 1, running_loss / len(trainloader)))
@@ -75,20 +85,11 @@ def test(model, testloader, criterion, device):
     losses = []
     filenames = []
     with torch.no_grad():
-        for i, (image, image2, target, target2, image_files) in enumerate(testloader):
-            image, target = image.to(device), target.to(device)
-            output = model(image)
-            outputs.append(output)
-
-            if isinstance(criterion, SSIM_Loss) or isinstance(criterion, MS_SSIM_Loss):
-                output, target = denormalize(output), denormalize(target)
-            losses.append(criterion(output, target))
-
+        for fundus_image, flio_image, fundus_target, flio_target, image_files in testloader:
+            fundus_image, fundus_target = fundus_image.to(device), fundus_target.to(device)
+            _, fundus_loss = apply_criterion(model, fundus_image, fundus_target, criterion, save_outputs=outputs)
+            losses.append(fundus_loss)
             filenames.append(image_files[0])
-            # if isinstance(file_labelweight, list):
-            #     filenames.append(file_labelweight[0])  # appends file_name
-            # else:
-            #     filenames.append(file_labelweight)
 
     return outputs, losses, filenames
 
@@ -96,16 +97,26 @@ def test(model, testloader, criterion, device):
 # Convert output to RGB images
 def tensors_to_images(tensors, filenames, valid_data_path):
     quality_val = 90
-    transform = transforms.ToPILImage()
-    for i in range(len(tensors)):
-        for volume in tensors[i]:
-            volume = volume.cpu().numpy().transpose((1, 2, 0))
-            for j in range(volume.shape[2]):
-                channel = volume[:, :, j]
-                minimum = np.min(channel)
-                maximum = np.max(channel)
-                volume[:, :, j] = 255 * (channel - minimum) / (maximum - minimum)
-            image = transform(np.uint8(volume))
-            file_name = filenames[i][0].split('.')
-            image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
-                       quality=quality_val)
+    for tensor, file_name in zip(tensors, filenames):
+        volume = tensor[0]  # Batch size will always be 1
+        volume = volume.cpu().numpy().transpose((1, 2, 0))
+        volume = denormalize_and_rescale(volume)  # Denormalizes to [0, 1] and scales to [0, 255]
+        image = PIL.Image.fromarray(np.uint8(volume))
+        file_name = file_name[0].split('/')[-3] + '_' + os.path.basename(file_name[0]).split('.')[0]
+        image.save(os.path.join(valid_data_path, file_name + '_valid.jpg'), 'JPEG',
+                   quality=quality_val)
+
+    # quality_val = 90
+    # transform = transforms.ToPILImage()
+    # for i in range(len(tensors)):
+    #     for volume in tensors[i]:
+    #         volume = volume.cpu().numpy().transpose((1, 2, 0))
+    #         for j in range(volume.shape[2]):
+    #             channel = volume[:, :, j]
+    #             minimum = np.min(channel)
+    #             maximum = np.max(channel)
+    #             volume[:, :, j] = 255 * (channel - minimum) / (maximum - minimum)
+    #         image = transform(np.uint8(volume))
+    #         file_name = filenames[i][0].split('.')
+    #         image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
+    #                    quality=quality_val)
