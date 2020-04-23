@@ -56,9 +56,9 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
             if sample_weights:
                 _, label = file_labelweight
                 sample_weight = torch.tensor([sample_weights[l] for l in label]).cuda()
-                loss = weighted_mse_loss(output, target, sample_weight)
+                loss = weighted_loss(output, target, criterion, sample_weight)
             else:
-                if isinstance(criterion, SSIM_Loss) or isinstance(criterion, MS_SSIM_Loss):
+                if isinstance(criterion, SSIM) or isinstance(criterion, MS_SSIM):
                     output, target = denormalize(output), denormalize(target)
                 loss = criterion(output, target)
 
@@ -66,12 +66,13 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
             optimizer.step()
 
             step = i + epoch * len(trainloader)
-            running_loss += loss.item()
+            batch_loss = loss.item()
+            running_loss += batch_loss
             if i % 100 == 0:
-                print(i)
+                print(f'Step {i}, batch loss {batch_loss:.5f}')
             if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
-                add_image_tensorboard(model, image, step=step, epoch=epoch, avg_loss=running_loss / len(trainloader),
-                                      writer=writer, output_path=output_path)
+                add_image_tensorboard(model, image, has_feature_output=False, step=step, epoch=epoch,
+                                      loss=batch_loss, writer=writer, output_path=output_path)
 
             if i % len(trainloader) == len(trainloader) - 1:
                 print('[Epoch: {}, i: {}] loss: {:.5f}'.format(epoch + 1, i + 1, running_loss / len(trainloader)))
@@ -102,7 +103,7 @@ def test(model, testloader, criterion, device):
             output = model(image)
             outputs.append(output)
 
-            if isinstance(criterion, SSIM_Loss) or isinstance(criterion, MS_SSIM_Loss):
+            if isinstance(criterion, SSIM) or isinstance(criterion, MS_SSIM):
                 output, target = denormalize(output), denormalize(target)
             losses.append(criterion(output, target))
 
