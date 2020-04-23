@@ -10,10 +10,10 @@ Contents
 """
 
 
-from fastai.vision import *
 from torchvision import models
 
-from autoencoder_blocks import *
+from autoencoder_blocks import ConvBlock, DoubleConvBlock, DownBlock, UpBlock
+import torch.nn as nn
 
 
 class AutoEncoder(nn.Module):
@@ -40,7 +40,8 @@ class AutoEncoder(nn.Module):
 
         # Uses tanh output layer to ensure -1 to 1
         # Potential parameters are kernel_size=3 and padding=1
-        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh')
+        self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=3, padding=1, activation='tanh',
+                                  is_batch_norm=False)
 
     def forward(self, x):
         x = self.double_conv_block(x)
@@ -51,7 +52,7 @@ class AutoEncoder(nn.Module):
     @staticmethod
     def init_weights(m):
         if isinstance(m, nn.Conv2d):
-            torch.nn.init.xavier_normal_(m.weight)
+            nn.init.xavier_normal_(m.weight)
             m.bias.data.fill_(0.01)
 
 
