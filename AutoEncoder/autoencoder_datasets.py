@@ -64,10 +64,8 @@ class UnlabeledDataset(Dataset):
 class PairedUnlabeledDataset(UnlabeledDataset):
     # data_path leads to subject directories that contain both RGB fundus images and FLIO parameter maps
     def __init__(self, data_path, subdirectories, filetype, spectral_channel, transformations=None, augmentations=None):
-        # self.data_paths = [data_path] if data_path is not isinstance(data_path, list) else data_path
         self.data_path = data_path  # "/OakData/FLIO_Data/"
         self.subdirectories = subdirectories  # ["fundus_registered", "FLIO_parameters"]
-        # self.data_path = self.data_paths[0]
         self.filetype = filetype  # [["tiff", "fullsize"], "mat"]  If item is list, then index in for "keyword"
         self.spectral_channel = spectral_channel
 
@@ -95,7 +93,6 @@ class PairedUnlabeledDataset(UnlabeledDataset):
 
         # self.data, self.file_names = self.images_to_tensors(data_path, subdirectories)
         # self.data = [[[[1, 2], [3, 4]]], [[[2, 3], [4, 5]]]]
-        self.size = 0
         self.transformations = transformations
         self.augmentations = augmentations
 
@@ -105,28 +102,28 @@ class PairedUnlabeledDataset(UnlabeledDataset):
         #for image in raw_image:  # For the fundus image and FLIO map
 
         fundus_image = skimage.io.imread(image_files[0])
-        fundus_image = skimage.transform.resize(fundus_image, (512, 512))
+        # fundus_image = skimage.transform.resize(fundus_image, (512, 512))
         mat_image = hdf5storage.loadmat(image_files[1])
         mat_image = mat_image['result'][0][0]['results'][0][0]['pixel'][0][0]
         flio_image = np.dstack((mat_image['Amplitude1'], mat_image['Amplitude2'], mat_image['Amplitude3'],
                                mat_image['Tau1'], mat_image['Tau2'], mat_image['Tau3']))
+
         if self.augmentations:
             # Implement applying the same transform - for image may not apply
             # Return target properly
             augmented = self.augmentations(image=fundus_image, image2=flio_image)
-            image, image2 = augmented['image'], augmented['image2']
-        image = self.transformations(image=image).get('image')  # Normalizes to [-1, 1]
-        image2[:, :, 0:3] = self.transformations(image=image2[:, :, 0:3]).get('image')
-        image2 = image2[:, :, 0:3]
-        # image2[:, :, 3:6] = self.transformations(image=image2[:, :, 3:6]).get('image')
-        image, image2 = np.transpose(image, (2, 1, 0)), np.transpose(image2, (2, 1, 0))
-        image, image2 = torch.from_numpy(image / 255).float(), torch.from_numpy(image2 / 255).float()
-        target, target2 = image.clone(), image2.clone()
-        return image, image2, target, target2, image_files
+            fundus_image, flio_image = augmented['image'], augmented['image2']
+        # Should the FLIO image be normalized here? There is instance normalization
+        fundus_image = self.transformations(image=fundus_image).get('image')  # Normalizes to [-1, 1]
+        fundus_image, flio_image = np.transpose(fundus_image, (2, 0, 1)), np.transpose(flio_image, (2, 0, 1))
+        fundus_image, flio_image = torch.from_numpy(fundus_image).float(), torch.from_numpy(flio_image).float()
+        fundus_target, flio_target = fundus_image.clone(), flio_image.clone()
+        return fundus_image, flio_image, fundus_target, flio_target, image_files
 
     def __len__(self):
         return len(self.data)
 
+    # Clean this up
     def images_to_tensors(self, data_path, subdirectories):  # Does not convert to tensors right now, assembles data
         subjects = sorted(os.listdir(data_path))
         data = []
