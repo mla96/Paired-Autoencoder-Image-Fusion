@@ -38,27 +38,11 @@ def weighted_loss(output, target, criterion, sample_weight):
     return loss
 
 
-# def weighted_l1_loss(output, target, sample_weight):
-#     loss = 0
-#     errors = np.abs(output - target)
-#     for w, error in zip(sample_weight, errors):
-#         loss += torch.mean(w * error)
-#     return loss
-#
-#
-# def weighted_mse_loss(output, target, sample_weight):
-#     loss = 0
-#     errors = (output - target) ** 2
-#     for w, error in zip(sample_weight, errors):
-#         loss += torch.mean(w * error)
-#     return loss
-
-
 def cosine_similarity_loss(output, target):
     # Resize into 1 dimensional array to get a single value
-    output = output.view(np.prod(output.size()))
-    target = target.view(np.prod(target.size()))
-    return F.cosine_similarity(output, target, dim=0)
+    output = output.flatten(1, -1)
+    target = target.flatten(1, -1)
+    return torch.tensor(1).cuda() - F.cosine_similarity(output, target, dim=-1).mean()
 
 
 class SSIM_Loss(SSIM):
