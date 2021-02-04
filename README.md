@@ -1,1 +1,1 @@
-# FLIO Thesis Project
+# Multimodal Ophthalmologic Image Fusion Using Paired Autoencoders
