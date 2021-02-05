@@ -16,7 +16,9 @@ plt.switch_backend('agg')
 import PIL.Image
 
 from loss_utils import *
-from tensorboard_utils import add_image_tensorboard, denormalize
+from tensorboard_utils import add_image_tensorboard, denormalize, denormalize_and_rescale
+import os
+from tsnecuda import TSNE
 
 
 # Early stopping
@@ -52,14 +54,13 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
             image, target = image.to(device), target.to(device)
             output = model(image)
 
-            # If file_labelweight is a tuple and sample_weights is defined, then use a weighted_mse_loss
+            if isinstance(criterion, SSIM) or isinstance(criterion, MS_SSIM):
+                output, target = denormalize(output), denormalize(target)
             if sample_weights:
                 _, label = file_labelweight
                 sample_weight = torch.tensor([sample_weights[l] for l in label]).cuda()
                 loss = weighted_loss(output, target, criterion, sample_weight)
             else:
-                if isinstance(criterion, SSIM) or isinstance(criterion, MS_SSIM):
-                    output, target = denormalize(output), denormalize(target)
                 loss = criterion(output, target)
 
             loss.backward()
@@ -71,8 +72,8 @@ def train(model, trainloader, epoch_num, criterion, optimizer, scheduler, device
             if i % 100 == 0:
                 print(f'Step {i}, batch loss {batch_loss:.5f}')
             if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
-                add_image_tensorboard(model, image, has_feature_output=False, step=step, epoch=epoch,
-                                      loss=batch_loss, writer=writer, output_path=output_path)
+                add_image_tensorboard(model, image, step=step, epoch=epoch, loss=batch_loss, writer=writer,
+                                      output_path=output_path)
 
             if i % len(trainloader) == len(trainloader) - 1:
                 print('[Epoch: {}, i: {}] loss: {:.5f}'.format(epoch + 1, i + 1, running_loss / len(trainloader)))
@@ -138,3 +139,22 @@ def tensors_to_images(tensors, filenames, valid_data_path):
     #         file_name = filenames[i][0].split('.')
     #         image.save(os.path.join(valid_data_path, file_name[0] + '_valid.jpg'), 'JPEG',
     #                    quality=quality_val)
+
+
+def get_tsne(model, tsneloader, device):
+    model.eval()
+    feature_space = []
+    sample_weights = []
+    with torch.no_grad():
+        for image, target, file_labelweight in tsneloader:
+            image, target = image.to(device), target.to(device)
+            features = model.encoder(image)
+            if features.size()[3] == 72:
+                continue
+            flattened_features = np.squeeze(features.cpu().numpy()).transpose((1, 2, 0))
+            flattened_features = np.reshape(flattened_features, (np.prod(flattened_features.shape),))
+            feature_space.append(flattened_features)
+            sample_weights.append(file_labelweight[1][0].item())
+    return TSNE(perplexity=100, learning_rate=300).fit_transform(np.array(feature_space)), sample_weights
+
+    # return outputs, losses, filenames
