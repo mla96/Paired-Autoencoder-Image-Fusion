@@ -1,18 +1,19 @@
-# Michelle La
-# Jan. 30, 2020
+#!/usr/bin/env python3
+"""
+This file contains functions to convert FLIO data channels between formats.
+"""
 
 
 import numpy as np
 import SimpleITK as sitk
 from PIL import Image
-import hdf5storage
+import h5py
 
 
 # Get .mat files from FLIMX study manager directory
 def channel_Mat2NpArray(path):
-    channel = hdf5storage.loadmat(path)
-    channel_raw = channel['rawData']
-    # channel_rawflat = channel['rawDataFlat']
+    with h5py.File(path, 'r') as channel:
+        channel_raw = list(channel['rawData'])
     return channel_raw
 
 
