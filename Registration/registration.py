@@ -1,5 +1,7 @@
-# Michelle La
-# Jan. 30, 2020
+#!/usr/bin/env python3
+"""
+This file contains functions to register a moving image to a fixed image.
+"""
 
 
 import numpy as np
@@ -25,14 +27,15 @@ def my_registration(fixed_im, moving_im):
                                      moving_im.GetPixelID())
 
     R = sitk.ImageRegistrationMethod()
-    R.SetMetricAsANTSNeighborhoodCorrelation(10)  # sampling?
+    R.SetMetricAsANTSNeighborhoodCorrelation(50)  # sampling?
     R.SetMetricSamplingStrategy(R.RANDOM)
-    R.SetMetricSamplingPercentage(0.2)
+    R.SetMetricSamplingPercentage(0.4)
     # R.SetShrinkFactorsPerLevel(shrinkFactors = [4,2,1])
     # R.SetSmoothingSigmasPerLevel(smoothingSigmas=[2,1,0])
     # R.SmoothingSigmasAreSpecifiedInPhysicalUnitsOn()
-    # R.SetOptimizerAsRegularStepGradientDescent(1.0, 0.01, 200, 0.1)
-    R.SetOptimizerAsGradientDescent(1.0, numberOfIterations=300, convergenceMinimumValue=1e-12)
+    # R.SetOptimizerAsRegularStepGradientDescent(1.0, 0.0001, 500, estimateLearningRate=R.Once)
+    R.SetOptimizerAsGradientDescent(1.0, numberOfIterations=900, convergenceMinimumValue=1e-14)
+    # R.SetOptimizerAsGradientDescentLineSearch(1.0, numberOfIterations=300, convergenceMinimumValue=1e-12)
     R.SetOptimizerScalesFromPhysicalShift()
     R.SetInitialTransform(initial_transform, inPlace=False)
     R.SetInterpolator(sitk.sitkLinear)
