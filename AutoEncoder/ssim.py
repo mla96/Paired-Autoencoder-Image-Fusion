@@ -1,5 +1,5 @@
 """
-Taken from VainF's github repo for SSIM with small mods
+Adapted with small modifications from VainF @ GitHub, pytorch-msssim/pytorch_msssim/ssim.py
 """
 
 import torch
@@ -262,4 +262,3 @@ class MS_SSIM(torch.nn.Module):
 
     def forward(self, X, Y):
         return ms_ssim(X, Y, win=self.win, win_size=self.win_size, size_average=self.size_average, data_range=self.data_range, weights=self.weights, K=self.K, nonnegative_ssim=self.nonnegative_ssim)
-
