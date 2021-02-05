@@ -16,12 +16,12 @@ import PIL.Image
 import torch
 
 from autoencoder_traintest_functions import StopCondition
-from loss_utils import cosine_similarity_loss, SSIM, MS_SSIM
+from loss_utils import cosine_similarity_loss, SSIM, MS_SSIM, MEF_MSSSIM_Loss
 from tensorboard_utils import add_image_tensorboard, denormalize, denormalize_and_rescale
 
 
 def apply_criterion(model, image, target, criterion, save_outputs=None):
-    latent_features, output = model(image)
+    latent_features, output = model.encoder(image), model(image)
     if isinstance(save_outputs, list):
         save_outputs.append(output)
     if isinstance(criterion, SSIM) or isinstance(criterion, MS_SSIM):
@@ -29,8 +29,12 @@ def apply_criterion(model, image, target, criterion, save_outputs=None):
     return latent_features, criterion(output, target)
 
 
-def train(model, model2, trainloader, epoch_num, criterion, criterion2, optimizer, scheduler, device, writer,
-          output_path, plot_steps=1000, stop_condition=4000):
+def calc_fundus_flio_loss(fundus_loss, fundus_latent_features, flio_loss, flio_latent_features, criterion_latent):
+    return 0.01 * fundus_loss + 0.01 * flio_loss + criterion_latent(fundus_latent_features, flio_latent_features)
+
+
+def train(model, model2, trainloader, epoch_num, criterion, criterion2, criterion_latent, optimizer, scheduler, device,
+          writer, output_path, plot_steps=1000, stop_condition=4000):
     model.train()
     model2.train()
     if stop_condition:
@@ -47,7 +51,8 @@ def train(model, model2, trainloader, epoch_num, criterion, criterion2, optimize
             flio_image, flio_target = flio_image.to(device), flio_target.to(device)
             flio_latent_features, flio_loss = apply_criterion(model2, flio_image, flio_target, criterion2)
 
-            total_loss = fundus_loss + 3 * flio_loss + 3 * cosine_similarity_loss(fundus_latent_features, flio_latent_features)
+            total_loss = calc_fundus_flio_loss(fundus_loss, fundus_latent_features, flio_loss, flio_latent_features,
+                                               criterion_latent)
 
             total_loss.backward()
             optimizer.step()
@@ -56,10 +61,9 @@ def train(model, model2, trainloader, epoch_num, criterion, criterion2, optimize
             batch_loss = total_loss.item()
             running_loss += batch_loss
             # if i % 100 == 0:
-            print(i)
             if step % plot_steps == 0:  # Generate training progress reconstruction figures every # steps
-                add_image_tensorboard(model, fundus_image, step=step, epoch=epoch, has_feature_output=True,
-                                      loss=batch_loss, writer=writer, output_path=output_path)
+                add_image_tensorboard(model, fundus_image, step=step, epoch=epoch, loss=batch_loss, writer=writer,
+                                      output_path=output_path)
 
             if i % len(trainloader) == len(trainloader) - 1:
                 print('[Epoch: {}, i: {}] loss: {:.5f}'.format(epoch + 1, i + 1, running_loss / len(trainloader)))
@@ -79,19 +83,30 @@ def train(model, model2, trainloader, epoch_num, criterion, criterion2, optimize
     epoch_log.close()
 
 
-def test(model, testloader, criterion, device):
+def test(model, model2, testloader, criterion, criterion2, criterion_latent, device):
     model.eval()
-    outputs = []
+    fundus_outputs = []
+    flio_outputs = []
     losses = []
-    filenames = []
+    fundus_filenames = []
+    flio_filenames = []
     with torch.no_grad():
         for fundus_image, flio_image, fundus_target, flio_target, image_files in testloader:
             fundus_image, fundus_target = fundus_image.to(device), fundus_target.to(device)
-            _, fundus_loss = apply_criterion(model, fundus_image, fundus_target, criterion, save_outputs=outputs)
-            losses.append(fundus_loss)
-            filenames.append(image_files[0])
+            fundus_latent_features, fundus_loss = apply_criterion(model, fundus_image, fundus_target, criterion,
+                                                                  save_outputs=fundus_outputs)
 
-    return outputs, losses, filenames
+            flio_image, flio_target = flio_image.to(device), flio_target.to(device)
+            flio_latent_features, flio_loss = apply_criterion(model2, flio_image, flio_target, criterion2,
+                                                              save_outputs=flio_outputs)
+
+            total_loss = calc_fundus_flio_loss(fundus_loss, fundus_latent_features, flio_loss, flio_latent_features,
+                                               criterion_latent)
+            losses.append(total_loss)
+            fundus_filenames.append(image_files[0])
+            flio_filenames.append(image_files[1])
+
+    return fundus_outputs, flio_outputs, losses, fundus_filenames, flio_filenames
 
 
 # Convert output to RGB images
@@ -101,6 +116,7 @@ def tensors_to_images(tensors, filenames, valid_data_path):
         volume = tensor[0]  # Batch size will always be 1
         volume = volume.cpu().numpy().transpose((1, 2, 0))
         volume = denormalize_and_rescale(volume)  # Denormalizes to [0, 1] and scales to [0, 255]
+        volume = np.squeeze(volume)
         image = PIL.Image.fromarray(np.uint8(volume))
         file_name = file_name[0].split('/')[-3] + '_' + os.path.basename(file_name[0]).split('.')[0]
         image.save(os.path.join(valid_data_path, file_name + '_valid.jpg'), 'JPEG',
