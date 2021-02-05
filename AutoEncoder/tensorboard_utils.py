@@ -15,13 +15,12 @@ from matplotlib import pyplot as plt
 plt.switch_backend('agg')
 
 
-def add_image_tensorboard(model, image, has_feature_output=False, **kwargs):
+def add_image_tensorboard(model, image, **kwargs):
     """
     Parameters
     ---
     model: PyTorch model
     image: input tensor
-    has_feature_output: bool
     **kwargs: to be fed directly into plot_tensors_tensorboard
         1. step
         2. epoch
@@ -30,10 +29,7 @@ def add_image_tensorboard(model, image, has_feature_output=False, **kwargs):
         5. output_path
     """
     model.eval()  # Change to evaluation mode to test the model
-    if has_feature_output:
-        _, output = model(image)
-    else:
-        output = model(image)
+    output = model(image)
 
     randint = np.random.randint(0, image.size()[0])
     input_im = image[randint].detach().cpu().numpy()

@@ -19,6 +19,8 @@ class AutoEncoder_fundus(nn.Module):
         down_blocks = [DownBlock(in_channels, out_channels)
                        for in_channels, out_channels in zip(n_encoder_filters, n_encoder_filters[1:])]
         self.down_blocks = nn.Sequential(*down_blocks)
+        self.encoder = nn.Sequential(self.double_conv_block,
+                                     self.down_blocks)
 
         # [128, 64, 32]
         up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
@@ -29,12 +31,13 @@ class AutoEncoder_fundus(nn.Module):
         # Uses tanh output layer to ensure -1 to 1
         # Potential parameters are kernel_size=1 and padding=0 OR kernel_size=3 and padding=1
         self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=3, padding=1, activation='tanh', is_batch_norm=False)
+        self.decoder = nn.Sequential(self.up_blocks,
+                                     self.out_conv)
 
     def forward(self, x):
-        x = self.double_conv_block(x)
-        latent_features = self.down_blocks(x)
-        x = self.up_blocks(latent_features)
-        return latent_features, self.out_conv(x)
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
 
     @staticmethod
     def init_weights(m):
@@ -59,6 +62,9 @@ class AutoEncoder_FLIO(nn.Module):
         down_blocks = [DownBlock(in_channels, out_channels)
                        for in_channels, out_channels in zip(n_encoder_filters, n_encoder_filters[1:])]
         self.down_blocks = nn.Sequential(*down_blocks)
+        # Add self.instance_norm if needed
+        self.encoder = nn.Sequential(self.double_conv_block,
+                                     self.down_blocks)
 
         # [128, 64, 32]
         up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
@@ -69,13 +75,13 @@ class AutoEncoder_FLIO(nn.Module):
         # Uses tanh output layer to ensure -1 to 1
         # Potential parameters are kernel_size=1 and padding=0 OR kernel_size=3 and padding=1
         self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=3, padding=1, activation='tanh')
+        self.decoder = nn.Sequential(self.up_blocks,
+                                     self.out_conv)
 
     def forward(self, x):
-        x = self.instance_norm(x)
-        x = self.double_conv_block(x)
-        latent_features = self.down_blocks(x)
-        x = self.up_blocks(latent_features)
-        return latent_features, self.out_conv(x)
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
 
     @staticmethod
     def init_weights(m):
@@ -92,7 +98,7 @@ class AutoEncoder_ResEncoder_Fundus(nn.Module):
 
         resnet = models.resnet34()
         resnet_layers = list(resnet.children())
-        self.resnet_block = nn.Sequential(*resnet_layers[:8])  # Stops right before linear layer
+        self.encoder = nn.Sequential(*resnet_layers[:8])  # Stops right before linear layer
 
         self.n_channels = n_channels
         self.n_decoder_filters = n_decoder_filters.insert(0, 512)  # Insert here the number of filters the resnet ends on
@@ -104,13 +110,15 @@ class AutoEncoder_ResEncoder_Fundus(nn.Module):
                      for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
         self.up_blocks = nn.Sequential(*up_blocks)
         self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh')
+        self.decoder = nn.Sequential(self.up_blocks,
+                                     self.decoder)
 
     def forward(self, x):
-        features = self.resnet_block(x)  # Dimensions:
-        x = self.up_blocks(features)
-        return features, self.out_conv(x)  # Tanh activation layer
+        x = self.encoder(x)  # Dimensions:
+        x = self.decoder(x)
+        return x
 
-    # Replace witih load state dict
+    # Replace with load state dict
     @staticmethod
     def init_weights(m):
         if isinstance(m, nn.Conv2d):
@@ -127,6 +135,8 @@ class AutoEncoder_ResEncoder_FLIO(nn.Module):  # FLIO parameter dimensions: 256,
         resnet_layers = list(resnet.children())
         self.conv2d = nn.Conv2d(n_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.resnet_block = nn.Sequential(*resnet_layers[1:8])  # Stops right before linear layer
+        self.encoder = nn.Sequential(self.conv2d,
+                                     self.resnet_block)
 
         self.n_channels = n_channels
         self.n_decoder_filters = n_decoder_filters.insert(0, 512)  # Insert here the number of filters the resnet ends on
@@ -138,12 +148,13 @@ class AutoEncoder_ResEncoder_FLIO(nn.Module):  # FLIO parameter dimensions: 256,
                      for in_channels, out_channels in zip(n_decoder_filters, n_decoder_filters[1:])]
         self.up_blocks = nn.Sequential(*up_blocks)
         self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh')
+        self.decoder = nn.Sequential(self.up_blocks,
+                                     self.out_conv)
 
     def forward(self, x):
-        x = self.conv2d(x)
-        features = self.resnet_block(x)  # Dimensions:
-        x = self.up_blocks(features)
-        return features, self.out_conv(x)  # Tanh activation layer
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
 
     @staticmethod
     def init_weights(m):
