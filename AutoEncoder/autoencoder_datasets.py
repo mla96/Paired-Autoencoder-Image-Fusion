@@ -12,13 +12,13 @@ Contents
 
 import os
 
-import PIL.Image
 import hdf5storage
 import numpy as np
 import skimage.io
 import skimage.transform
 import torch
 from torch.utils.data.dataset import Dataset
+import albumentations as A
 
 
 # UnlabeledDataset takes care of imbalanced sample weights by defining labels
@@ -61,41 +61,38 @@ class UnlabeledDataset(Dataset):
                 if '.jpg' in file or '.jpeg' in file]
 
 
-class PairedUnlabeledDataset(UnlabeledDataset):
+class PairedUnlabeledDataset:  # Can be used for FLIO data formatted as single-channel Tau_mean images
     # data_path leads to subject directories that contain both RGB fundus images and FLIO parameter maps
-    def __init__(self, data_path, subdirectories, filetype, spectral_channel, transformations=None, augmentations=None):
+    def __init__(self, data_path, subdirectories_map, spectral_channel, n_channel_tuple=(3, 3), augmentations=None):
         self.data_path = data_path  # "/OakData/FLIO_Data/"
-        self.subdirectories = subdirectories  # ["fundus_registered", "FLIO_parameters"]
-        self.filetype = filetype  # [["tiff", "fullsize"], "mat"]  If item is list, then index in for "keyword"
+        self.subdirectories_map = subdirectories_map  # ("jpg", ["rgb"]), ("jpg", ["taumean_minscaled"])
         self.spectral_channel = spectral_channel
+        self.fundus_ext, self.flio_ext = self.get_extensions(subdirectories_map)
 
         self.data = []
         data_paths = sorted(os.listdir(data_path))
         for data_dir in data_paths:
             if "AMD" in data_dir:  # Exclude "Test"
-                data_append = []
-                for i in range(len(subdirectories)):
-                    keyword = []
-                    ftype = filetype[i]
-                    if isinstance(ftype, list):
-                        ext = ftype[0]
-                        for word in ftype[1:]:
-                            keyword.append(word)
-                    else:
-                        ext = ftype
-                    if os.path.exists(os.path.join(data_path, data_dir, subdirectories[i])):  # Remove this when all subjects are registered
-                        for file in os.listdir(os.path.join(data_path, data_dir, subdirectories[i])):
-                            if ext in file and spectral_channel in file and all(k in file for k in keyword):
-                                data_append.append(os.path.join(data_path, data_dir, subdirectories[i], file))
-                if len(data_append) == 2:
-                    self.data.append(data_append)
+                target_data = []
+                for subdirectory, (ext, keywords) in subdirectories_map.items():
+                    target_dir = os.path.join(data_path, data_dir, subdirectory)
+                    if os.path.exists(target_dir):  # Remove this when all subjects are registered
+                        for file in os.listdir(target_dir):
+                            if ext in file and spectral_channel in file and all(k in file for k in keywords):
+                                target_data.append(os.path.join(target_dir, file))
+                if len(target_data) == 2:
+                    self.data.append(tuple(target_data))
 
-
-        # self.data, self.file_names = self.images_to_tensors(data_path, subdirectories)
-        # self.data = [[[[1, 2], [3, 4]]], [[[2, 3], [4, 5]]]]
-        self.transformations = transformations
+        self.n_fundus_channels, self.n_flio_channels = n_channel_tuple
+        fundus_normal_params = tuple(0.5 for _ in range(self.n_fundus_channels))
+        self.fundus_transformations = A.Compose(
+            [A.Normalize(fundus_normal_params, fundus_normal_params)]
+        )
+        flio_normal_params = tuple(0.5 for _ in range(self.n_flio_channels))
+        self.flio_transformations = A.Compose(
+            [A.Normalize(flio_normal_params, flio_normal_params)]
+        )
         self.augmentations = augmentations
-
 
     def __getitem__(self, index):
         image_files = self.data[index]  # Two files in one list
@@ -103,18 +100,31 @@ class PairedUnlabeledDataset(UnlabeledDataset):
 
         fundus_image = skimage.io.imread(image_files[0])
         # fundus_image = skimage.transform.resize(fundus_image, (512, 512))
-        mat_image = hdf5storage.loadmat(image_files[1])
-        mat_image = mat_image['result'][0][0]['results'][0][0]['pixel'][0][0]
-        flio_image = np.dstack((mat_image['Amplitude1'], mat_image['Amplitude2'], mat_image['Amplitude3'],
-                               mat_image['Tau1'], mat_image['Tau2'], mat_image['Tau3']))
+
+        if self.flio_ext == 'mat':
+            mat_image = channel_Mat2Array(image_files[1])
+            flio_image = np.dstack((mat_image['Amplitude1'], mat_image['Amplitude2'], mat_image['Amplitude3'],
+                                    mat_image['Tau1'], mat_image['Tau2'], mat_image['Tau3']))
+            flio_image = np.flipud(flio_image).copy()
+        else:
+            flio_image = skimage.io.imread(image_files[1])
+
+        # # show fundus image
+        # fundus_imshow = PIL.Image.fromarray(np.uint8(fundus_image))
+        # fundus_imshow.show()
+        # # show amplitude 0:3 of flio image
+        # flio_imshow = PIL.Image.fromarray(np.uint8(flio_image[:, :, 0:3]))
+        # flio_imshow.show()
 
         if self.augmentations:
             # Implement applying the same transform - for image may not apply
             # Return target properly
             augmented = self.augmentations(image=fundus_image, image2=flio_image)
-            fundus_image, flio_image = augmented['image'], augmented['image2']
-        # Should the FLIO image be normalized here? There is instance normalization
-        fundus_image = self.transformations(image=fundus_image).get('image')  # Normalizes to [-1, 1]
+            fundus_image, flio_image = augmented.get('image'), augmented.get('image2')
+        fundus_image = self.fundus_transformations(image=fundus_image).get('image')  # Normalizes to [-1, 1]
+        flio_image = self.flio_transformations(image=flio_image).get('image')
+        if self.n_flio_channels == 1:
+            flio_image = flio_image[:, :, np.newaxis]
         fundus_image, flio_image = np.transpose(fundus_image, (2, 0, 1)), np.transpose(flio_image, (2, 0, 1))
         fundus_image, flio_image = torch.from_numpy(fundus_image).float(), torch.from_numpy(flio_image).float()
         fundus_target, flio_target = fundus_image.clone(), flio_image.clone()
@@ -123,35 +133,93 @@ class PairedUnlabeledDataset(UnlabeledDataset):
     def __len__(self):
         return len(self.data)
 
-    # Clean this up
-    def images_to_tensors(self, data_path, subdirectories):  # Does not convert to tensors right now, assembles data
-        subjects = sorted(os.listdir(data_path))
-        data = []
-        for subject in subjects:
-            if 'AMD_01' in subject and os.path.isdir(os.path.join(data_path, subject)):  # Ignore other directories
-                temp_subject = []
-                # Go into subdirectories
-                for file in os.listdir(os.path.join(data_path, subject, subdirectories[0])):  # RGB fundus images
-                    if self.filetype[0] in file and 'registered_fullsize' in file and self.spectral_channel in file:  # If a particular identifier string is in this file, in this directory
-                        temp_subject.append(PIL.Image.open(os.path.join(data_path, subject, subdirectories[0], file)))
-                for file in os.listdir(os.path.join(data_path, subject, subdirectories[1])):  # FLIO parameter maps
-                    if self.filetype[1] in file and 'result' in file and self.spectral_channel in file:  # Channel 2 (LSC) first, as changes are more obvious
-                        # Create array from complete result.mat file
-                        mat_file = channel_Mat2Array(os.path.join(data_path, subject, subdirectories[1], file))
-                        # Create arrays from first 3 parameters and second 3 parameters
-                        # image_012 = np.array([mat_file['Amplitude1'], mat_file['Amplitude2'], mat_file['Amplitude3']])
-                        # image_345 = np.array([mat_file['Tau1'], mat_file['Tau2'], mat_file['Tau3']])
-                        param_tensor = np.asarray([mat_file['Amplitude1'], mat_file['Amplitude2'], mat_file['Amplitude3'],
-                                        mat_file['Tau1'], mat_file['Tau2'], mat_file['Tau3']])
+    def get_extensions(self, subdirectories_map):
+        fundus_ext = None
+        flio_ext = None
+        for subdirectory, (ext, _) in subdirectories_map.items():
+            if "fundus" in subdirectory:
+                fundus_ext = ext
+            elif "FLIO" in subdirectory:
+                flio_ext = ext
+        return fundus_ext, flio_ext
 
-                        # Output 3 images
-                        # temp_subject.append(image_012)
-                        # temp_subject.append(image_345)
-                        temp_subject.append(param_tensor)
-                if len(temp_subject) == 2:  # If both files are present in directory and contained in temporary variable
-                    data.append([temp_subject[0], temp_subject[1]])
 
-        return data, subjects
+class FLIOUnlabeledDataset:
+    # data_path leads to subject directories that contain both RGB fundus images and FLIO parameter maps
+    def __init__(self, data_path, spectral_channel, transformations=None, augmentations=None, taumean=False):
+        self.data_path = data_path  # "/OakData/FLIO_Data/"
+        self.subdirectory = "FLIO_parameters"
+        self.spectral_channel = spectral_channel
+
+        self.data = []
+        # data_paths = sorted(os.listdir(data_path))
+        # for data_dir in data_paths:
+        #     if "AMD" in data_dir:  # Exclude "Test"
+        #         ext = "mat"
+        #         if os.path.exists(os.path.join(data_path, data_dir, self.subdirectory)):  # Remove this when all subjects are registered
+        #             for file in os.listdir(os.path.join(data_path, data_dir, self.subdirectory)):
+        #                 if ext in file and spectral_channel in file:
+        #                     self.data.append(os.path.join(data_path, data_dir, self.subdirectory, file))
+        f = open(data_path, 'r')
+        data_paths = f.readlines()
+        f.close()
+        for data_dir in data_paths:
+            data_dir = data_dir.strip()
+            ext = "mat"
+            if os.path.exists(os.path.join("../../../../OakData/FLIO_Data", data_dir, self.subdirectory)):  # Remove this when all subjects are registered
+                for file in os.listdir(os.path.join("../../../../OakData/FLIO_Data", data_dir, self.subdirectory)):
+                    if ext in file and spectral_channel in file:
+                        self.data.append(os.path.join("../../../../OakData/FLIO_Data", data_dir, self.subdirectory, file))
+
+        self.transformations = transformations
+        self.augmentations = augmentations
+        self.taumean = taumean
+
+    def __getitem__(self, index):
+        image_files = self.data[index]
+        mat_image = hdf5storage.loadmat(image_files)
+        mat_image = mat_image['result'][0][0]['results'][0][0]['pixel'][0][0]
+        flio_image = np.flipud(np.dstack((mat_image['Amplitude1'], mat_image['Amplitude2'], mat_image['Amplitude3'],
+                               mat_image['Tau1'], mat_image['Tau2'], mat_image['Tau3']))).copy()
+
+
+        # print(np.min(flio_image[:, :, 0]), np.max(flio_image[:, :, 0]))
+        # print(np.min(flio_image[:, :, 1]), np.max(flio_image[:, :, 1]))
+        # print(np.min(flio_image[:, :, 2]), np.max(flio_image[:, :, 2]))
+        # print(np.min(flio_image[:, :, 3]), np.max(flio_image[:, :, 3]))
+        # print(np.min(flio_image[:, :, 4]), np.max(flio_image[:, :, 4]))
+        # print(np.min(flio_image[:, :, 5]), np.max(flio_image[:, :, 5]))
+        # print('\n')
+
+        if self.taumean:
+            amplitude_FLIO_image = flio_image[:, :, 0:3]
+            tau_FLIO_image = flio_image[:, :, 3:6]
+            taumean_FLIO_image = np.sum(amplitude_FLIO_image * tau_FLIO_image, axis=2) / (
+                        np.sum(amplitude_FLIO_image, axis=2) + 1e-6)
+            taumean_FLIO_image[taumean_FLIO_image <= 300] = 300
+            taumean_FLIO_image[taumean_FLIO_image >= 500] = 500
+            flio_image = taumean_FLIO_image
+
+
+        if self.augmentations:
+            # Implement applying the same transform - for image may not apply
+            # Return target properly
+            flio_image = self.augmentations(image=flio_image).get('image')
+        # Should the FLIO image be normalized here? There is instance normalization
+        if len(flio_image.shape) == 2:
+            flio_image = flio_image[:, :, np.newaxis]
+            flio_image = flio_image / 255
+            flio_image = (flio_image - 0.5) / 0.5
+        else:
+            flio_image[:, :, 0:3] = self.transformations(image=flio_image[:, :, 0:3]).get('image')
+            flio_image[:, :, 3:6] = self.transformations(image=flio_image[:, :, 3:6]).get('image')
+        flio_image = np.transpose(flio_image, (2, 0, 1))
+        flio_image = torch.from_numpy(flio_image).float()
+        flio_target = flio_image.clone()
+        return flio_image, flio_target, image_files
+
+    def __len__(self):
+        return len(self.data)
 
 
 # Convert .mat file to array
