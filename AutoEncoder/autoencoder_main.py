@@ -11,40 +11,44 @@ import albumentations as A
 from fastai.vision import DataLoader
 import os
 from PIL import ImageFile
+import numpy as np
 
 import torch.multiprocessing
+import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
 from autoencoder import AutoEncoder, AutoEncoder_ResEncoder
 from autoencoder_datasets import UnlabeledDataset
-from autoencoder_traintest_functions import train, test, tensors_to_images
+from autoencoder_traintest_functions import train, test, tensors_to_images, get_tsne
 from loss_utils import get_loss_type, SSIM_Loss, MS_SSIM_Loss, MS_SSIM_L1_Loss
+from torchsummary import summary
 
 
 # Paths to source data, validation data, and output saves
 transfer_data_path = "../../../../OakData/Transfer_learning_datasets"
-data_paths = [os.path.join(transfer_data_path, "train"),
-              os.path.join(transfer_data_path, "KaggleDR_crop512")]
+data_paths = [os.path.join(transfer_data_path, "train")]
+              # os.path.join(transfer_data_path, "KaggleDR_crop512")]
 data_paths_AMD = [os.path.join(transfer_data_path, "train_AMD")]
 valid_data_path = [os.path.join(transfer_data_path, "validation")]  # Contains small data set for validation
 save_model_path = "../../FLIO-Thesis-Project/AutoEncoder/AutoEncoder_Results"
-model_base_name = "fixednew_autoencoder_32-64-64-16-64-64-32_tanh_31_lr004_sched8_MSorig"
+model_base_name = "sepcoder_autoencoder_32-64-64-16-64-64-32_tanh_31_lr0035_sched8_MSorig"
 
 # Training parameters
 model_architecture = "noRes"  # Options: noRes, Res34
-epoch_num = 512
-train_data_type = "AMDonly"  # Options: None, AMDonly
+epoch_num = 10
+train_data_type = None  # Options: None, AMDonly
 loss_type = "MS-SSIM-L1"  # Options: L1, MSE, SSIM, MS-SSIM, MS-SSIM-L1
 batch_size = 16
 num_workers = 12
 plot_steps = 500  # Number of steps between getting random input/output to plot training progress in TensorBoard
 stop_condition = 10000  # Number of steps without improvement for early stopping
 w = 0.995  # weight of rare event
-sample_weights = None  # Options: None, [1 - w, w]
+sample_weights = [1 - w, w]  # Options: None, [1 - w, w]
 
-overwrite = True  # Overwrite existing model to train again
+overwrite = False  # Overwrite existing model to train again
+t_sne = True
 
 
 # Create model name based on model_base_name and training parameters
@@ -96,7 +100,7 @@ augmentation_pipeline = A.Compose(augmentations)
 
 
 # Load training set
-unlabeled_dataset = UnlabeledDataset(data_paths_AMD,
+unlabeled_dataset = UnlabeledDataset(data_paths, data_paths_AMD,
                                      transformations=transformation_pipeline, augmentations=augmentation_pipeline)
 dataloader = DataLoader(unlabeled_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
 
@@ -114,15 +118,16 @@ else:  # noRes
                         trainable=False).to(device)
     model.apply(AutoEncoder.init_weights)  # Initialize weights
 
-
 if torch.cuda.device_count() > 1:
     model = nn.DataParallel(model)
 print("Now using", torch.cuda.device_count(), "GPU(s) \n")
 model.to(device)
 
+# summary(model, input_size=(3, 256, 256))
+
 # Select loss
 criterion = get_loss_type(loss_type).to(device)
-optimizer = optim.Adam(model.parameters(), lr=0.004)
+optimizer = optim.Adam(model.parameters(), lr=0.0035)
 # optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.8)
 
@@ -143,7 +148,7 @@ if not os.path.isfile(save_model_path_filename) or overwrite:  # If training a n
     tensorboard_writer.flush()
     tensorboard_writer.close()
 else:  # Load old model with the given name
-    model.load_state_dict(torch.load(save_model_path_filename))
+    model.load_state_dict(torch.load(save_model_path_filename), strict=False)
 
 # TESTING
 validation_dataset = UnlabeledDataset(valid_data_path, transformations=transformation_pipeline)
@@ -157,3 +162,15 @@ print(valid_losses[0])
 
 # Save outputs as JPEG images
 tensors_to_images(valid_outputs, valid_filenames, valid_output_path)
+
+# t-SNE
+if t_sne:
+    tsne_dataset = UnlabeledDataset(data_paths, data_paths_AMD, transformations=transformation_pipeline)
+    tsne_dataloader = DataLoader(tsne_dataset, batch_size=1, shuffle=False, num_workers=num_workers, pin_memory=True)
+    tsne_fitted, sw = get_tsne(model, tsne_dataloader, device)
+    tx, ty = tsne_fitted[:, 0], tsne_fitted[:, 1]
+    tx = (tx - np.min(tx)) / (np.max(tx) - np.min(tx))
+    ty = (ty - np.min(ty)) / (np.max(ty) - np.min(ty))
+    sw = np.array(sw)
+    plt.scatter(tx, ty, c=sw)
+    plt.savefig(model_output_path)
