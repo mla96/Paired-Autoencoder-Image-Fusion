@@ -31,6 +31,8 @@ class AutoEncoder(nn.Module):
         down_blocks = [DownBlock(in_channels, out_channels)
                        for in_channels, out_channels in zip(n_encoder_filters, n_encoder_filters[1:])]
         self.down_blocks = nn.Sequential(*down_blocks)
+        self.encoder = nn.Sequential(self.double_conv_block,
+                                     self.down_blocks)
 
         # [128, 64, 32]
         up_blocks = [UpBlock(in_channels, out_channels, trainable=trainable)
@@ -42,12 +44,13 @@ class AutoEncoder(nn.Module):
         # Potential parameters are kernel_size=3 and padding=1
         self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=3, padding=1, activation='tanh',
                                   is_batch_norm=False)
+        self.decoder = nn.Sequential(self.up_blocks,
+                                     self.out_conv)
 
     def forward(self, x):
-        x = self.double_conv_block(x)
-        x = self.down_blocks(x)
-        x = self.up_blocks(x)
-        return self.out_conv(x)
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
 
     @staticmethod
     def init_weights(m):
@@ -62,7 +65,7 @@ class AutoEncoder_ResEncoder(nn.Module):
 
         resnet = models.resnet34()
         resnet_layers = list(resnet.children())
-        self.resnet_block = nn.Sequential(*resnet_layers[:8])  # Stops right before linear layer
+        self.encoder = nn.Sequential(*resnet_layers[:8])  # Stops right before linear layer
 
         self.n_channels = n_channels
         self.n_decoder_filters = n_decoder_filters.insert(0, 512)  # Insert here the number of filters the resnet ends on
@@ -77,15 +80,17 @@ class AutoEncoder_ResEncoder(nn.Module):
         # Uses tanh output layer to ensure -1 to 1
         # Potential parameters are kernel_size=3 and padding=1
         self.out_conv = ConvBlock(n_decoder_filters[-1], n_channels, kernel_size=1, padding=0, activation='tanh', is_batch_norm=False)
+        self.decoder = nn.Sequential(self.up_blocks,
+                                     self.out_conv)
 
     def forward(self, x):
-        x = self.resnet_block(x)
-        x = self.up_blocks(x)
-        return self.out_conv(x)
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
 
     @staticmethod
     def init_weights(m):
         if isinstance(m, nn.Conv2d):
-            torch.nn.init.xavier_normal_(m.weight)
+            nn.init.xavier_normal_(m.weight)
             if m.bias is not None:
                 m.bias.data.fill_(0.01)
