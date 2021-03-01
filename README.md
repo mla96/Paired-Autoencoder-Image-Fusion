@@ -17,8 +17,12 @@ Fluorescence lifetime imaging ophthalmoscopy (FLIO) has been posited as a novel 
 
 Preprocessing
 
+Matched FLIO and fundus data was obtained for 37 AMD subjects, provided by Martin Hammer at the University Hospital Jena Department of Ophthalmology.
+
 1) Fundus
 2) FLIO
+
+For the purpose of training initial weights, additional fundus data (approximately 90k images) was gathered online from sources including the Retinal Images for Glaucoma Analysis (RIGA), Digital Retinal Images for Vessel Extraction (DRIVE), Structured Analysis of the REtina (STARE), Automated Retinal Image Analyzer (ARIA), and Kaggle Diabetic Retinopathy competition. Images were cropped into fovea-centered squares and resized. No additional FLIO data could be obtained.
 
 Utilizing a paired dataset comprising both imaging modalities, we generated fundus-like RGB images that qualitatively highlight the fluorescence lifetime component differences found in the matched FLIO data.
 
