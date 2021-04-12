@@ -5,7 +5,6 @@ This file contains classes and functions to instantiate custom PyTorch Datasets.
 Contents
 ---
     UnlabeledDataset : load unlabeled images for AutoEncoder model
-    ImbalancedDataset : almost the same thing as UnlabeledDataset but accommodates sample weights; will likely combine
     PairedUnlabeledDataset : load unlabeled RGB fundus images paired with FLIO data as .mat parameters
 """
 
@@ -21,27 +20,38 @@ from torch.utils.data.dataset import Dataset
 import albumentations as A
 
 
-# UnlabeledDataset takes care of imbalanced sample weights by defining labels
-# Labels for AMD (or mixed sets) and non-AMD data for sample weighting during transfer learning
 class UnlabeledDataset(Dataset):
+    """
+    UnlabeledDataset inherits from the PyTorch Dataset to create an object storing images and paths to be input into the PyTorch DataLoader.
+
+    UnlabeledDataset historically had no labels because only a single data set/data type at a time is used for AutoEncoder reconstruction.
+    It now incorporates optional labeling of a second sub-data set, from previously-defined now-defunct class ImbalancedDataset.
+    Defining labels for imbalanced sample weights allows us to weight AMD and non-AMD data differently during training/transfer learning.
+    
+    Attributes:
+        file_paths: directories containing image files, optionally labeled to apply different weights later
+        transformations: optional albumentations pipeline (normalize) as seen in autoencoder_main.py
+        augmentations: optional albumentations pipeline (flips and rotations) as seen in autoencoder_main.py
+    """
 
     def __init__(self, data_paths_1, data_paths_2=None, transformations=None, augmentations=None):
-        self.data_paths_1 = data_paths_1  # Label 1 samples
-        self.labels = (0, 1)  # Keep track of labels
         self.file_paths = []
-        for data_path in self.data_paths_1:
-            self.file_paths.extend(self.get_file_paths(data_path, self.labels[0]))
+        labels = (0, 1)  # Keep track of labels
+        for data_path in data_paths_1:  # Label 1 samples
+            self.file_paths.extend(self.get_file_paths(data_path, labels[0]))
 
-        # Add to file_paths if data_paths_2 variable exists
-        if data_paths_2:
-            self.data_paths_2 = data_paths_2  # Label 2 samples
-            for data_path in self.data_paths_2:
-                self.file_paths.extend(self.get_file_paths(data_path, self.labels[1]))
+        if data_paths_2:  # Label 2 samples if they are available
+            for data_path in data_paths_2:
+                self.file_paths.extend(self.get_file_paths(data_path, labels[1]))
 
         self.transformations = transformations
         self.augmentations = augmentations
 
     def __getitem__(self, index):
+        """
+        :param index: index of image path called by PyTorch DataLoader
+        :return: identical image and target for AutoEncoder reconstruction, basename as data point identifier, and label
+        """
         file_path, label = self.file_paths[index]
         image = skimage.io.imread(file_path)
         if self.augmentations:
@@ -56,21 +66,41 @@ class UnlabeledDataset(Dataset):
         return len(self.file_paths)
 
     def get_file_paths(self, data_path, label):
-        files = os.listdir(data_path)  # Extracts the file names technically
+        """
+        :param data_path: directory containing image files
+        :param label: label distinguishing sub-data set for sample weighting later
+        :return: full paths leading to .jpg or .jpeg files, attached to corresponding label
+        """
+        files = os.listdir(data_path)  # Extracts filenames
         return [(os.path.join(data_path, file), label) for file in files
                 if '.jpg' in file or '.jpeg' in file]
 
 
-class PairedUnlabeledDataset:  # Can be used for FLIO data formatted as single-channel Tau_mean images
-    # data_path leads to subject directories that contain both RGB fundus images and FLIO parameter maps
+class PairedUnlabeledDataset:
+    """
+    PairedUnlabeledDataset creates an object storing matched fundus and FLIO data to be input into the PyTorch DataLoader.
+
+    FLIO data may be formatted as parameter maps or single-channel Tau_mean images.
+
+    Attributes:
+        fundus_ext, flio_ext: string-formatted file extensions
+        data: collects only matched data (one file of each type)
+        n_fundus_channels, n_flio_channels: number of fundus and FLIO channels, respectively, to be normalized
+        fundus_transformations, flio_transformations: appropriate normalization for each data type
+        augmentations: optional albumentations pipeline (flips and rotations) as seen in autoencoder_main.py
+    """
+
     def __init__(self, data_path, subdirectories_map, spectral_channel, n_channel_tuple=(3, 3), augmentations=None):
-        self.data_path = data_path  # "/OakData/FLIO_Data/"
-        self.subdirectories_map = subdirectories_map  # ("jpg", ["rgb"]), ("jpg", ["taumean_minscaled"])
-        self.spectral_channel = spectral_channel
+        """
+        :param data_path: Leads to subject directories that contain both RGB fundus images and FLIO parameter maps
+        :param subdirectories_map: String tuple identifying matched file keywords as named in directories; i.e. ("jpg", ["rgb"]), ("jpg", ["taumean_minscaled"])
+        :param spectral_channel: desired channel of FLIO data
+        :param n_channel_tuple: number of fundus and FLIO channels, respectively, to be normalized
+        """
         self.fundus_ext, self.flio_ext = self.get_extensions(subdirectories_map)
 
         self.data = []
-        data_paths = sorted(os.listdir(data_path))
+        data_paths = sorted(os.listdir(data_path)) # "/OakData/FLIO_Data/"
         for data_dir in data_paths:
             if "AMD" in data_dir:  # Exclude "Test"
                 target_data = []
@@ -95,6 +125,10 @@ class PairedUnlabeledDataset:  # Can be used for FLIO data formatted as single-c
         self.augmentations = augmentations
 
     def __getitem__(self, index):
+        """
+        :param index: index of image path called by PyTorch DataLoader
+        :return: identical images and targets for AutoEncoder reconstruction, and basenames as data point identifier
+        """
         image_files = self.data[index]  # Two files in one list
         #for image in raw_image:  # For the fundus image and FLIO map
 
@@ -109,10 +143,10 @@ class PairedUnlabeledDataset:  # Can be used for FLIO data formatted as single-c
         else:
             flio_image = skimage.io.imread(image_files[1])
 
-        # # show fundus image
+        # # Show fundus image
         # fundus_imshow = PIL.Image.fromarray(np.uint8(fundus_image))
         # fundus_imshow.show()
-        # # show amplitude 0:3 of flio image
+        # # Show amplitude 0:3 of FLIO image
         # flio_imshow = PIL.Image.fromarray(np.uint8(flio_image[:, :, 0:3]))
         # flio_imshow.show()
 
@@ -134,6 +168,10 @@ class PairedUnlabeledDataset:  # Can be used for FLIO data formatted as single-c
         return len(self.data)
 
     def get_extensions(self, subdirectories_map):
+        """
+        :param subdirectories_map: String tuple identifying matched file keywords as named in directories; i.e. ("jpg", ["rgb"]), ("jpg", ["taumean_minscaled"])
+        :return: string-formatted file extensions
+        """
         fundus_ext = None
         flio_ext = None
         for subdirectory, (ext, _) in subdirectories_map.items():
@@ -149,7 +187,6 @@ class FLIOUnlabeledDataset:
     def __init__(self, data_path, spectral_channel, transformations=None, augmentations=None, taumean=False):
         self.data_path = data_path  # "/OakData/FLIO_Data/"
         self.subdirectory = "FLIO_parameters"
-        self.spectral_channel = spectral_channel
 
         self.data = []
         # data_paths = sorted(os.listdir(data_path))
