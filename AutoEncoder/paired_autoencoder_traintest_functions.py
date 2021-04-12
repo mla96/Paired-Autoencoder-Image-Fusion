@@ -4,6 +4,8 @@ This file contains functions for paired AutoEncoder model training and testing w
 
 Contents
 ---
+    apply_criterion() : calculates latent features and loss given criterion between output and target
+    calc_fundus_flio_loss() : calculates custom loss weighted by fundus and FLIO losses
     train() : trains model
     test() : validates model
     tensors_to_images() : converts tensors to RGB PIL images and saves them
@@ -21,6 +23,14 @@ from tensorboard_utils import add_image_tensorboard, denormalize, denormalize_an
 
 
 def apply_criterion(model, image, target, criterion, save_outputs=None):
+    """
+    :param model: PyTorch model
+    :param image: input image data
+    :param target: given input, this is the desired output; clone of image, as reconstruction is the goal
+    :param criterion: loss type
+    :param save_outputs: save model output to variable
+    :return: latent features and loss calculation given criterion between output and target
+    """
     latent_features, output = model.encoder(image), model(image)
     if isinstance(save_outputs, list):
         save_outputs.append(output)
@@ -30,11 +40,31 @@ def apply_criterion(model, image, target, criterion, save_outputs=None):
 
 
 def calc_fundus_flio_loss(fundus_loss, fundus_latent_features, flio_loss, flio_latent_features, criterion_latent):
+    """
+    :param fundus_loss, flio_loss: loss criterion for each model
+    :param fundus_latent_features, flio_latent_features: features of latent space for each model
+    :param criterion_latent: loss criterion for shared constraints and model learning based on paired latent spaces
+    :return: custom loss weighted by fundus and FLIO losses
+    """
     return 0.01 * fundus_loss + 0.01 * flio_loss + criterion_latent(fundus_latent_features, flio_latent_features)
 
 
 def train(model, model2, trainloader, epoch_num, criterion, criterion2, criterion_latent, optimizer, scheduler, device,
           writer, output_path, plot_steps=1000, stop_condition=4000):
+    """
+    :param model, model2: paired PyTorch models
+    :param trainloader: PyTorch DataLoader
+    :param epoch_num: number of training epochs
+    :param criterion, criterion2: loss type
+    :param criterion_latent: loss criterion for shared constraints and model learning based on paired latent spaces
+    :param optimizer: optimization algorithm for stochastic gradient descent
+    :param scheduler: learning rate scheduler
+    :param device: PyTorch device ('cpu' or 'cuda')
+    :param writer: write to TensorBoard
+    :param output_path: directory to save figures created during training
+    :param plot_steps: number of steps to plot training progress in TensorBoard
+    :param stop_condition: number of steps without improvement for early stopping
+    """
     model.train()
     model2.train()
     if stop_condition:
@@ -67,7 +97,7 @@ def train(model, model2, trainloader, epoch_num, criterion, criterion2, criterio
 
             if i % len(trainloader) == len(trainloader) - 1:
                 print('[Epoch: {}, i: {}] loss: {:.5f}'.format(epoch + 1, i + 1, running_loss / len(trainloader)))
-                # Tensorboard
+                # TensorBoard
                 writer.add_scalar('train_scalar', running_loss / len(trainloader), step)
 
                 if stop_condition:
@@ -84,6 +114,13 @@ def train(model, model2, trainloader, epoch_num, criterion, criterion2, criterio
 
 
 def test(model, model2, testloader, criterion, criterion2, criterion_latent, device):
+    """
+    :param model, model2: paired PyTorch models
+    :param testloader: PyTorch DataLoader
+    :param criterion, criterion2: loss type
+    :param criterion_latent: loss criterion for shared constraints and model learning based on paired latent spaces
+    :param device: PyTorch device ('cpu' or 'cuda')
+    """
     model.eval()
     fundus_outputs = []
     flio_outputs = []
